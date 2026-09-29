@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ErrorBox } from "@/components/ui";
 import { homeFor, useAuth } from "@/lib/auth";
 import { useI18n, type Lang } from "@/lib/i18n";
+import { useLocal, writeLocal } from "@/lib/store";
 
 const DEMO = [
   ["lawyer@nyayasetu.test", "Legal-aid lawyer"],
@@ -22,6 +23,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const notice = useLocal("nyaya_notice");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,6 +31,7 @@ export default function Login() {
     setError(null);
     try {
       const u = await login(email, password);
+      writeLocal("nyaya_notice", null);
       router.replace(homeFor(u.role));
     } catch (err) {
       setError((err as Error).message);
@@ -60,6 +63,7 @@ export default function Login() {
               <option value="en">English</option><option value="kn">ಕನ್ನಡ</option><option value="hi">हिन्दी</option>
             </select>
           </div>
+          {notice && <p role="status" className="card bg-urgent-bg text-urgent p-3 text-sm">{notice}</p>}
           <ErrorBox error={error} />
           <label className="block">
             <span className="label">{t("email")}</span>

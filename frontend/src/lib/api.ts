@@ -29,6 +29,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   }
   if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/auth/login")) {
     // session expired: clearing the stored session makes <Shell> route to /login
+    writeLocal("nyaya_notice", "Your session has expired or the demo data was reset. Please sign in again.");
     writeLocal("nyaya_token", null);
     writeLocal("nyaya_user", null);
   }

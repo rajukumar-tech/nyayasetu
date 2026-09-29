@@ -17,6 +17,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "data" / "synthetic"))
+# The evaluation seeds its own data: it must NEVER touch the real database. This runs before any
+# `app.*` import (settings and the engine are created at import time), so everything below is in-memory.
+if "app.core.config" in sys.modules:
+    raise RuntimeError("app.evaluation must be run as its own process: python -m app.evaluation")
+os.environ["NYAYA_DATABASE_URL"] = "sqlite://"
 
 # Held-out adjournment phrasings (NOT used to write the rules or train the classifier).
 HELDOUT_DELAY = [
@@ -119,7 +124,6 @@ def eval_delay() -> dict:
 
 def eval_system(today: date) -> dict:
     """Seed an in-memory DB and measure eligibility agreement, insights and drafting grounding."""
-    os.environ["NYAYA_DATABASE_URL"] = "sqlite://"
     from sqlalchemy import select
     from app.core.config import settings
     settings.demo_mode = True
