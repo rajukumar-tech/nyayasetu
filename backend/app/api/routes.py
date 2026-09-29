@@ -539,7 +539,9 @@ def legal_records(user: User = Depends(current_user), db: Session = Depends(get_
              "verified_by": r.verified_by, "source": r.source, "notes": r.notes, "special_law": r.special_law,
              "compoundable": r.compoundable, "categories": r.offence_categories} for r in kb.records.values()]
     rules = [{"key": f"rule:{r.name}", "ref": r.ref, "verified": r.verified} for r in kb.rules.values()]
-    return {"version": kb.version, "records": recs, "rules": rules,
+    demo = db.scalar(select(func.count()).select_from(LegalVerification).where(
+        LegalVerification.verified.is_(True), LegalVerification.verified_by.like("DEMO SEED%")))
+    return {"version": kb.version, "records": recs, "rules": rules, "demo_verified_only": demo,
             "unverified": sum(1 for r in recs if not r["verified"]) + sum(1 for r in rules if not r["verified"])}
 
 

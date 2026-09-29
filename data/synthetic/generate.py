@@ -143,6 +143,7 @@ class Doc:
     case_ref: str | None
     is_primary: bool = True
     noisy: bool = False
+    truth: dict = field(default_factory=dict)  # ground-truth field values for extraction evaluation
 
 
 @dataclass
@@ -201,7 +202,9 @@ class Builder:
                     f"Reason for delay in reporting: {delay_expl or ''}\n"
                     f"Witnesses: {witnesses}\n"
                     f"Brief facts: {case.get('facts', '')}\n")
-        return asdict(Doc("fir", lang, ocr_noise(text, self.rng, noise), case["ref"], True, noise > 0))
+        truth = {"offence_date": offence_dt.date().isoformat(), "fir_date": fir_dt.date().isoformat(),
+                 "charges": [f"{c['act']} {c['section']}" for c in case["charges"]]}
+        return asdict(Doc("fir", lang, ocr_noise(text, self.rng, noise), case["ref"], True, noise > 0, truth))
 
     def arrest_memo(self, p: SynthPerson, case: dict, *, arrest_dt: datetime, grounds: str, relative_informed: str,
                     attested: str, medical: str, woman_officer: str = "", night_permission: str = "",
@@ -216,7 +219,8 @@ class Builder:
                 f"Medical examination: {medical}\n"
                 + (f"Woman police officer present: {woman_officer}\n" if p.gender == "female" else "")
                 + (f"Prior permission of Magistrate (arrest after sunset): {night_permission}\n" if night_permission else ""))
-        return asdict(Doc("arrest_memo", "en", ocr_noise(text, self.rng, noise), case["ref"], True, noise > 0))
+        truth = {"arrest_date": arrest_dt.date().isoformat(), "grounds_of_arrest": grounds}
+        return asdict(Doc("arrest_memo", "en", ocr_noise(text, self.rng, noise), case["ref"], True, noise > 0, truth))
 
     def remand_order(self, p: SynthPerson, case: dict, *, produced_dt: datetime, remand_date: date, custody: str,
                      reasons: str, lang: str = "en") -> dict:
@@ -230,7 +234,8 @@ class Builder:
                     f"Accused produced before Magistrate on: {fmt_date(produced_dt.date(), 'dmy')} at {produced_dt.strftime('%H:%M')} hrs\n"
                     f"Remanded to {custody} custody from {fmt_date(remand_date, 'dmy')}\n"
                     f"Reasons: {reasons}\n")
-        return asdict(Doc("remand_order", lang, text, case["ref"]))
+        return asdict(Doc("remand_order", lang, text, case["ref"], truth={"production_date": produced_dt.date().isoformat(),
+                                                                         "remand_date": remand_date.isoformat()}))
 
     def charge_sheet(self, p: SynthPerson, case: dict, *, filed: date, offence_date: date, witnesses: str,
                      fsl: str, recovery: str, confession: str, tip: str, weapon: str = "") -> dict:
@@ -246,14 +251,17 @@ class Builder:
                 f"Confession: {confession}\n"
                 f"Test identification parade: {tip}\n"
                 + (f"Weapon: {weapon}\n" if weapon else ""))
-        return asdict(Doc("charge_sheet", "en", text, case["ref"]))
+        return asdict(Doc("charge_sheet", "en", text, case["ref"], truth={"charge_sheet_date": filed.isoformat(),
+                                                                         "charge_sheet_offence_date": offence_date.isoformat(),
+                                                                         "charges": [f"{c['act']} {c['section']}" for c in case["charges"]]}))
 
     def order_sheet(self, case: dict, hearings: list[dict]) -> dict:
         lines = [f"ORDER SHEET\n{case['court']}\n{case['case_number']}  (CNR {case['cnr']})"]
         for h in hearings:
             nd = f" Call on {fmt_date(date.fromisoformat(h['next_date']), 'dmy')}." if h.get("next_date") else ""
             lines.append(f"{fmt_date(date.fromisoformat(h['date']), 'dmy')}: {h['reason_text']}{nd}")
-        return asdict(Doc("court_order", "en", "\n".join(lines) + "\n", case["ref"]))
+        return asdict(Doc("court_order", "en", "\n".join(lines) + "\n", case["ref"],
+                          truth={"hearing_dates": [h["date"] for h in hearings]}))
 
     def jail_record(self, p: SynthPerson, case: dict | None, *, admitted: date, prisoner_no: str, lang: str = "en",
                     stated_arrest: date | None = None) -> dict:
@@ -264,7 +272,8 @@ class Builder:
             text = (f"JAIL ADMISSION REGISTER EXTRACT\n{p.jail}\nUTP No.: {prisoner_no}\nName: {p.canonical_name} "
                     f"{p.relation} {p.relative_name}\nDate of admission: {fmt_date(admitted, 'dmy_dash')}\n"
                     + (f"Date of arrest (as stated): {fmt_date(stated_arrest, 'dmy_dash')}\n" if stated_arrest else ""))
-        return asdict(Doc("jail_record", lang, text, case["ref"] if case else None, is_primary=False))
+        return asdict(Doc("jail_record", lang, text, case["ref"] if case else None, is_primary=False,
+                          truth={"admission_date": admitted.isoformat()}))
 
     # ------------------------------------------------------------------ helpers
     def person(self, truth_id: str, scenario: str, name: str, *, gender: str = "male", age_years: int = 30,
@@ -558,7 +567,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "dataset.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"wrote {len(data['persons'])} persons, {len(data['er_records'])} ER records, "
-          f"{len(data['delay_reasons'])} delay reasons → {args.out / 'dataset.json'}")
+          f"{len(data['delay_reasons'])} delay reasons -> {args.out / 'dataset.json'}")
 
 
 def generate(today: date, seed: int = 7, population: int = 60) -> dict:

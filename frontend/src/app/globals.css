@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f6f5f1;
+  --surface: #ffffff;
+  --ink: #1b2233;
+  --muted: #5b6275;
+  --line: #dfdcd3;
+  --navy: #1d2b4f;
+  --navy-2: #2c3e6b;
+  --accent: #b3541e;
+  --critical: #b42318;
+  --critical-bg: #fef1f0;
+  --urgent: #b54708;
+  --urgent-bg: #fff4e5;
+  --ok: #067647;
+  --ok-bg: #ecfdf3;
+  --review: #8a6d00;
+  --review-bg: #fff9db;
+  --neutral-bg: #eef0f4;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-accent: var(--accent);
+  --color-critical: var(--critical);
+  --color-critical-bg: var(--critical-bg);
+  --color-urgent: var(--urgent);
+  --color-urgent-bg: var(--urgent-bg);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-review: var(--review);
+  --color-review-bg: var(--review-bg);
+  --color-neutral-bg: var(--neutral-bg);
+  --font-sans: var(--font-noto), var(--font-noto-kn), system-ui, sans-serif;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.btn {
+  display: inline-flex; align-items: center; gap: .4rem; border-radius: .5rem; padding: .45rem .9rem;
+  font-weight: 600; font-size: .875rem; border: 1px solid transparent; cursor: pointer; transition: background .15s;
+}
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-primary { background: var(--navy); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--navy-2); }
+.btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.btn-ghost:hover:not(:disabled) { background: var(--neutral-bg); }
+.btn-danger { background: var(--surface); color: var(--critical); border-color: #f3c6c2; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: .75rem; }
+.label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+mark.src { background: #ffe8a3; padding: 0 .1rem; border-radius: 2px; }
+mark.src-active { background: #ffc94d; outline: 2px solid var(--accent); }

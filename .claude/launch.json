@@ -1,0 +1,8 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {"name": "api", "runtimeExecutable": "C:/Users/ajitk/Desktop/nyayasetu/.venv/Scripts/python.exe",
+     "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8000", "--app-dir", "C:/Users/ajitk/Desktop/nyayasetu/backend"], "port": 8000},
+    {"name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "C:/Users/ajitk/Desktop/nyayasetu/frontend", "run", "dev"], "port": 3000}
+  ]
+}

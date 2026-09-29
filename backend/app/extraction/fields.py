@@ -96,6 +96,8 @@ _PERSON_RE = re.compile(
 _REL = {"ತಂದೆ": "s/o", "ಪತಿ": "w/o", "son of": "s/o", "daughter of": "d/o", "wife of": "w/o"}
 _HEARING_RE = re.compile(r"^(?P<date>[0-9೦-೯]{1,2}/[0-9೦-೯]{1,2}/[0-9೦-೯]{2,4}):\s*(?P<text>[^\n]*?)(?:\s*Call on (?P<next>[0-9/]+)\.)?\s*$", re.M)
 
+_REMAND_RE = re.compile(r"remanded to (?:\w+ )?custody (?:from|till|until) (?P<value>[^\n]+)", re.I)
+
 YES = {"yes", "y", "done", "ಹೌದು", "हाँ", "obtained", "present"}
 NO = {"no", "n", "not done", "ಇಲ್ಲ", "नहीं", "not obtained", "absent", "nil"}
 NOT_RECORDED = {"not recorded", "", "-", "blank", "not mentioned", "n/a"}
@@ -126,6 +128,9 @@ def extract_fields(text: str, today: date) -> list[Field]:
                 continue
             out.extend(_convert(name, kind, value, vstart, today))
             break
+    for m in _REMAND_RE.finditer(text):  # "Remanded to judicial custody from 26/02/2024" (no colon)
+        if not any(f.name == "remand_date" for f in out):
+            out.extend(_convert("remand_date", "date", m.group("value"), m.start("value"), today))
     for m in _HEARING_RE.finditer(text):
         ds = extract_dates(m.group("date"), today)
         nxt = extract_dates(m.group("next"), today) if m.group("next") else []
@@ -155,7 +160,8 @@ def _resolve_by_context(fields: list[Field]) -> None:
         cur = d_of(f)
         alt = date.fromisoformat(f.alternatives[0])
         dist = lambda d: min(abs((d - a).days) for a in anchors)  # noqa: E731
-        if cur and dist(alt) < dist(cur):
+        # Indian records are day-first: only flip when that reading is implausibly far from the other dates
+        if cur and dist(cur) > 180 and dist(alt) * 2 < dist(cur):
             new = alt.isoformat()
             if isinstance(f.value, dict):
                 f.value = {**f.value, "date": new}
@@ -171,7 +177,7 @@ def _convert(name: str, kind: str, value: str, start: int, today: date) -> list[
     lead = len(value) - len(value.lstrip())
     s0, e0 = start + lead, start + lead + len(v)
     if kind == "text":
-        return [Field(name, v, s0, e0, v, 0.9 if v else 0.5, flags=[] if v else ["EMPTY"])]
+        return [Field(name, v, s0, e0, v, 0.9 if v else 0.85, flags=[] if v else ["EMPTY"])]  # a blank field is a faithful reading
     if kind == "yesno":
         val, conf = _yesno(v)
         return [Field(name, val, s0, e0, v, conf, flags=["UNCLEAR"] if val == "unclear" else [])]
