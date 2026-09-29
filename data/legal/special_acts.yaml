@@ -1,0 +1,115 @@
+# Special and local laws. Every record `verified: false`.
+# `special_law: true` means Section 479 BNSS interplay is NEVER auto-decided — the
+# engine routes the case to lawyer review (see rules.yaml: special_law_policy).
+act: SPECIAL
+act_name: Special and local laws (multiple Acts)
+source: "India Code — respective Acts"
+source_url: https://www.indiacode.nic.in/
+records:
+  - act: NDPS
+    section: "20(b)(ii)(A)"
+    title: Cannabis — small quantity
+    punishment_summary: Rigorous imprisonment up to 1 year, or fine up to Rs 10,000, or both.
+    max_imprisonment: {years: 1}
+    special_law: true
+    special_bail_restrictions: null
+    default_bail_period_days: null
+    verified: false
+
+  - act: NDPS
+    section: "20(b)(ii)(B)"
+    title: Cannabis — more than small but less than commercial quantity
+    punishment_summary: Rigorous imprisonment up to 10 years and fine up to Rs 1 lakh.
+    max_imprisonment: {years: 10}
+    special_law: true
+    verified: false
+
+  - act: NDPS
+    section: "20(b)(ii)(C)"
+    title: Cannabis — commercial quantity
+    punishment_summary: Rigorous imprisonment 10 to 20 years and fine Rs 1–2 lakh.
+    max_imprisonment: {years: 20}
+    min_imprisonment: {years: 10}
+    special_law: true
+    special_bail_restrictions: "NDPS Section 37 twin conditions for commercial quantity."
+    default_bail_period_days: 180
+    notes: Investigation period may be extended (NDPS Section 36A(4)); verify.
+    verified: false
+
+  - act: NDPS
+    section: "21(b)"
+    title: Manufactured drugs — more than small but less than commercial quantity
+    punishment_summary: Rigorous imprisonment up to 10 years and fine up to Rs 1 lakh.
+    max_imprisonment: {years: 10}
+    special_law: true
+    verified: false
+
+  - act: POCSO
+    section: "4"
+    title: Punishment for penetrative sexual assault
+    punishment_summary: Not less than 10 years (20 years where child below 16), may extend to life, and fine.
+    max_imprisonment: life
+    min_imprisonment: {years: 10}
+    offence_categories: [against_children]
+    special_law: true
+    verified: false
+
+  - act: POCSO
+    section: "8"
+    title: Punishment for sexual assault
+    punishment_summary: 3 to 5 years and fine.
+    max_imprisonment: {years: 5}
+    min_imprisonment: {years: 3}
+    offence_categories: [against_children]
+    special_law: true
+    verified: false
+
+  - act: POCSO
+    section: "12"
+    title: Punishment for sexual harassment
+    punishment_summary: Up to 3 years and fine.
+    max_imprisonment: {years: 3}
+    offence_categories: [against_children]
+    special_law: true
+    verified: false
+
+  - act: ARMS
+    section: "25(1B)(a)"
+    title: Possession of firearm without licence
+    punishment_summary: 1 to 3 years and fine.
+    max_imprisonment: {years: 3}
+    min_imprisonment: {years: 1}
+    special_law: true
+    verified: false
+
+  - act: UAPA
+    section: "13"
+    title: Punishment for unlawful activities
+    punishment_summary: Up to 7 years and fine.
+    max_imprisonment: {years: 7}
+    special_law: true
+    special_bail_restrictions: "UAPA Section 43D(5) — prima facie bar on bail."
+    default_bail_period_days: 90
+    notes: Default-bail period extendable to 180 days under Section 43D(2); verify.
+    verified: false
+
+  - act: SCST
+    section: "3(1)(r)"
+    title: Intentional insult or intimidation with intent to humiliate a member of SC/ST in public view
+    punishment_summary: 6 months to 5 years and fine.
+    max_imprisonment: {years: 5}
+    min_imprisonment: {months: 6}
+    special_law: true
+    special_bail_restrictions: "Section 18 — anticipatory bail barred (subject to case law)."
+    verified: false
+
+  - act: PMLA
+    section: "4"
+    title: Punishment for money-laundering
+    punishment_summary: Rigorous imprisonment 3 to 7 years (up to 10 years where NDPS proceeds) and fine.
+    max_imprisonment: {years: 7}
+    min_imprisonment: {years: 3}
+    offence_categories: [socio_economic]
+    special_law: true
+    special_bail_restrictions: "PMLA Section 45 twin conditions."
+    verified: false

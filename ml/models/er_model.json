@@ -1,0 +1,45 @@
+{
+  "features": [
+    "name_token_sort",
+    "name_jw_phonetic",
+    "name_token_overlap",
+    "alias_match",
+    "initials_compatible",
+    "father_sim",
+    "father_missing",
+    "age_diff_norm",
+    "age_missing",
+    "same_district",
+    "same_station",
+    "address_sim",
+    "address_missing",
+    "coaccused_overlap",
+    "same_cnr"
+  ],
+  "weights": {
+    "bias": -5.69380598512273,
+    "name_token_sort": -1.656558192899177,
+    "name_jw_phonetic": -0.7182334689863554,
+    "name_token_overlap": 0.021141784834328953,
+    "alias_match": -0.11695962653795693,
+    "initials_compatible": -0.0006604166515993896,
+    "father_sim": 5.5144278305416154,
+    "father_missing": 2.1929218344574037,
+    "age_diff_norm": -5.672165521136232,
+    "age_missing": 0.22686036256462988,
+    "same_district": 4.528455019796941,
+    "same_station": 0.11677583310868755,
+    "address_sim": 1.0912354170703304,
+    "address_missing": 0.29610033199886954,
+    "coaccused_overlap": 2.2737393817542513,
+    "same_cnr": 1.4981865613720613
+  },
+  "train_seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ]
+}

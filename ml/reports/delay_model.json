@@ -1,0 +1,141 @@
+{
+  "data": "SYNTHETIC DEMO (DDL files not found) \u2014 do not use for real prioritisation",
+  "horizon_years": 3,
+  "train_years": "<= 2013",
+  "test_years": "> 2013",
+  "n_train": 13400,
+  "n_test_labelled": 12571,
+  "n_test_all": 16600,
+  "auc": 0.784,
+  "brier": 0.0559,
+  "cox_c_index_test": 0.6389,
+  "calibration": [
+    {
+      "mean_predicted": 0.001,
+      "observed": 0.001,
+      "n": 1382
+    },
+    {
+      "mean_predicted": 0.004,
+      "observed": 0.003,
+      "n": 1160
+    },
+    {
+      "mean_predicted": 0.02,
+      "observed": 0.012,
+      "n": 1289
+    },
+    {
+      "mean_predicted": 0.043,
+      "observed": 0.024,
+      "n": 1266
+    },
+    {
+      "mean_predicted": 0.061,
+      "observed": 0.038,
+      "n": 1243
+    },
+    {
+      "mean_predicted": 0.085,
+      "observed": 0.035,
+      "n": 1325
+    },
+    {
+      "mean_predicted": 0.125,
+      "observed": 0.059,
+      "n": 1213
+    },
+    {
+      "mean_predicted": 0.171,
+      "observed": 0.093,
+      "n": 1210
+    },
+    {
+      "mean_predicted": 0.233,
+      "observed": 0.104,
+      "n": 1227
+    },
+    {
+      "mean_predicted": 0.388,
+      "observed": 0.189,
+      "n": 1256
+    }
+  ],
+  "fairness_by_district": {
+    "Agra": {
+      "n": 2129,
+      "auc": 0.739,
+      "mean_predicted": 0.099,
+      "observed_rate": 0.04
+    },
+    "Belagavi": {
+      "n": 1076,
+      "auc": 0.773,
+      "mean_predicted": 0.058,
+      "observed_rate": 0.022
+    },
+    "Bengaluru Urban": {
+      "n": 1035,
+      "auc": 0.704,
+      "mean_predicted": 0.105,
+      "observed_rate": 0.047
+    },
+    "Kalaburagi": {
+      "n": 917,
+      "auc": 0.638,
+      "mean_predicted": 0.252,
+      "observed_rate": 0.134
+    },
+    "Lucknow": {
+      "n": 2080,
+      "auc": 0.734,
+      "mean_predicted": 0.152,
+      "observed_rate": 0.077
+    },
+    "Mysuru": {
+      "n": 904,
+      "auc": 0.734,
+      "mean_predicted": 0.256,
+      "observed_rate": 0.133
+    },
+    "Nagpur": {
+      "n": 2257,
+      "auc": 0.767,
+      "mean_predicted": 0.049,
+      "observed_rate": 0.026
+    },
+    "Pune": {
+      "n": 2173,
+      "auc": 0.782,
+      "mean_predicted": 0.061,
+      "observed_rate": 0.034
+    }
+  },
+  "fairness_by_female_defendant": {
+    "0": {
+      "n": 11357,
+      "auc": 0.785,
+      "mean_predicted": 0.112,
+      "observed_rate": 0.056
+    },
+    "1": {
+      "n": 1214,
+      "auc": 0.77,
+      "mean_predicted": 0.114,
+      "observed_rate": 0.049
+    }
+  },
+  "features": [
+    "act_group",
+    "state",
+    "district",
+    "filing_year",
+    "case_type",
+    "n_accused"
+  ],
+  "excluded_protected_attributes": [
+    "religion",
+    "caste",
+    "gender (used only for evaluation)"
+  ]
+}

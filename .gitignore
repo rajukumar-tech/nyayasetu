@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+backend/*.db
+backend/uploads/
+.env
+data/synthetic/out/
+data/external/ddl/
+data/judgments/hc_judgments.jsonl
+frontend/node_modules/
+frontend/.next/
+frontend/test-results/
+frontend/playwright-report/

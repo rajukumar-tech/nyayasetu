@@ -1,0 +1,45 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: nyaya
+      POSTGRES_PASSWORD: nyaya
+      POSTGRES_DB: nyayasetu
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nyaya -d nyayasetu"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+  api:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    env_file: [.env]
+    environment:
+      NYAYA_DATABASE_URL: postgresql+psycopg://nyaya:nyaya@db:5432/nyayasetu
+      NYAYA_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      retries: 10
+  worker:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    env_file: [.env]
+    environment:
+      NYAYA_DATABASE_URL: postgresql+psycopg://nyaya:nyaya@db:5432/nyayasetu
+      NYAYA_REDIS_URL: redis://redis:6379/0
+    command: celery -A app.worker worker -B --loglevel=info
+    depends_on:
+      api: {condition: service_healthy}
+  web:
+    build: {context: frontend}
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on: [api]
+volumes:
+  pgdata:

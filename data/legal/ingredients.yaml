@@ -1,0 +1,27 @@
+# Offence ingredients used by the Defense Insight Engine (category C) to flag charges whose
+# essential ingredient is not described anywhere in the record. Keyword lists are a crude
+# screen that only SUGGESTS a discharge / lesser-section argument for the lawyer to assess.
+# All `verified: false`.
+act: INGREDIENTS
+records: []
+ingredients:
+  - sections: ["IPC:380", "BNS:305"]
+    ingredient: "theft committed in a building/tent/vessel used as a dwelling or for custody of property (BNS 305 also: vehicle, place of worship)"
+    any_of: ["house", "dwelling", "residence", "home", "building", "room", "temple", "church", "mosque", "vehicle", "shop", "ಮನೆ", "ದೇವಸ್ಥಾನ"]
+    lesser: {"IPC:380": "IPC 379", "BNS:305": "BNS 303(2)"}
+    verified: false
+  - sections: ["IPC:392", "BNS:309(4)"]
+    ingredient: "theft or extortion accompanied by causing or attempting death, hurt, wrongful restraint or fear of it"
+    any_of: ["force", "hurt", "assault", "threat", "knife", "weapon", "beat", "injur", "snatch", "fear"]
+    lesser: {"IPC:392": "IPC 379", "BNS:309(4)": "BNS 303(2)"}
+    verified: false
+  - sections: ["IPC:324", "BNS:118(1)"]
+    ingredient: "hurt caused by a dangerous weapon or means"
+    any_of: ["knife", "weapon", "rod", "stick", "blade", "acid", "fire", "sickle", "machete", "dangerous"]
+    lesser: {"IPC:324": "IPC 323", "BNS:118(1)": "BNS 115(2)"}
+    verified: false
+  - sections: ["IPC:420", "BNS:318(4)"]
+    ingredient: "deception with dishonest inducement to deliver property, present from the start"
+    any_of: ["deceiv", "induc", "false promise", "cheat", "misrepresent", "fraud", "fake"]
+    lesser: {}
+    verified: false

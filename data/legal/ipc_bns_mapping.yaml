@@ -1,0 +1,39 @@
+# IPC ↔ BNS correspondence. For display and research ONLY — offences committed before
+# 1 July 2024 keep IPC punishment (see rules.yaml: transition). All `verified: false`.
+# relation: one_to_one | one_to_many | many_to_one | no_equivalent
+source: "Comparative tables published alongside the BNS, 2023 (to be verified)"
+source_url: https://www.indiacode.nic.in/
+mappings:
+  - {ipc: "34",   bns: ["3(5)"],   relation: one_to_one, verified: false}
+  - {ipc: "109",  bns: ["49"],     relation: one_to_one, verified: false}
+  - {ipc: "120B", bns: ["61(2)"],  relation: one_to_one, verified: false}
+  - {ipc: "511",  bns: ["62"],     relation: one_to_one, verified: false}
+  - {ipc: "279",  bns: ["281"],    relation: one_to_one, verified: false}
+  - {ipc: "290",  bns: ["292"],    relation: one_to_one, verified: false}
+  - {ipc: "302",  bns: ["103(1)"], relation: one_to_one, verified: false}
+  - {ipc: "304A", bns: ["106(1)"], relation: one_to_one, notes: "BNS maximum raised to 5 years; hit-and-run is a separate sub-section.", verified: false}
+  - {ipc: "307",  bns: ["109(1)"], relation: one_to_one, verified: false}
+  - {ipc: "323",  bns: ["115(2)"], relation: one_to_one, verified: false}
+  - {ipc: "324",  bns: ["118(1)"], relation: one_to_one, verified: false}
+  - {ipc: "325",  bns: ["117(2)"], relation: one_to_one, verified: false}
+  - {ipc: "326",  bns: ["118(2)"], relation: one_to_one, verified: false}
+  - {ipc: "354",  bns: ["74"],     relation: one_to_one, verified: false}
+  - {ipc: "363",  bns: ["137(2)"], relation: one_to_one, verified: false}
+  - {ipc: "376",  bns: ["64(1)"],  relation: one_to_one, verified: false}
+  - {ipc: "379",  bns: ["303(2)"], relation: one_to_one, verified: false}
+  - {ipc: "380",  bns: ["305"],    relation: one_to_one, notes: "BNS 305 also covers vehicles and places of worship.", verified: false}
+  - {ipc: "392",  bns: ["309(4)"], relation: one_to_one, verified: false}
+  - {ipc: "395",  bns: ["310(2)"], relation: one_to_one, verified: false}
+  - {ipc: "406",  bns: ["316(2)"], relation: one_to_one, notes: "BNS maximum raised to 5 years.", verified: false}
+  - {ipc: "411",  bns: ["317(2)"], relation: one_to_one, verified: false}
+  - {ipc: "420",  bns: ["318(4)"], relation: one_to_one, verified: false}
+  - {ipc: "498A", bns: ["85"],     relation: one_to_one, verified: false}
+  - {ipc: "504",  bns: ["352"],    relation: one_to_one, verified: false}
+  - {ipc: "506",  bns: ["351(2)"], relation: one_to_one, verified: false}
+  - {ipc: "506-II", bns: ["351(3)"], relation: one_to_one, verified: false}
+  - {ipc: "509",  bns: ["79"],     relation: one_to_one, verified: false}
+  - {ipc: "294",  bns: ["296"],    relation: one_to_one, notes: "BNS 296 not loaded in this knowledge base.", verified: false}
+  - {ipc: "124A", bns: [],         relation: no_equivalent, notes: "Sedition omitted; BNS 152 is a differently worded offence — do not treat as equivalent.", verified: false}
+  - {ipc: "377",  bns: [],         relation: no_equivalent, notes: "No general equivalent in BNS.", verified: false}
+  - {ipc: "447",  bns: ["329(3)"], relation: one_to_one, notes: "BNS 329(3) not loaded in this knowledge base.", verified: false}
+  - {ipc: "427",  bns: ["324(4)"], relation: one_to_one, notes: "Mischief is graded by loss amount under BNS 324; not loaded.", verified: false}

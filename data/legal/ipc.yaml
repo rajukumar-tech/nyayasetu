@@ -1,0 +1,333 @@
+# Indian Penal Code, 1860 — governs punishment for offences committed before 1 July 2024.
+#
+# EVERY record below is `verified: false`. Values were entered from general legal
+# knowledge while building NyayaSetu, NOT checked against the official text.
+# `punishment_summary` is a paraphrase, never a quotation of the statute.
+# A system_admin must check each record against India Code / the Gazette and flip
+# `verified` through the admin API (which is audit-logged). See docs/LEGAL_DATA.md.
+act: IPC
+act_name: Indian Penal Code, 1860 (Act 45 of 1860)
+source: "India Code — The Indian Penal Code, 1860; classification per CrPC First Schedule / Section 320"
+source_url: https://www.indiacode.nic.in/
+applies_to_offences_before: 2024-07-01
+records:
+  - section: "34"
+    title: Acts done by several persons in furtherance of common intention
+    kind: liability_rule          # not an offence by itself; see rules.yaml derivations
+    punishment_summary: No separate punishment; each person liable as if they did the act alone.
+    verified: false
+
+  - section: "109"
+    title: Abetment, if the act abetted is committed
+    kind: liability_rule
+    punishment_summary: Same punishment as the offence abetted, where no express provision.
+    verified: false
+
+  - section: "120B"
+    title: Punishment of criminal conspiracy
+    kind: liability_rule
+    punishment_summary: >-
+      For conspiracy to commit an offence punishable with death, life imprisonment or rigorous
+      imprisonment of two years or more — as abetment of that offence; otherwise up to six months.
+    verified: false
+
+  - section: "511"
+    title: Attempting to commit offences punishable with imprisonment for life or other imprisonment
+    kind: liability_rule
+    punishment_summary: Up to one-half of the longest term provided for the offence, where no express provision.
+    verified: false
+
+  - section: "279"
+    title: Rash driving or riding on a public way
+    punishment_summary: Up to 6 months, or fine up to Rs 1,000, or both.
+    max_imprisonment: {months: 6}
+    cognizable: true
+    bailable: true
+    compoundable: "no"
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "290"
+    title: Punishment for public nuisance in cases not otherwise provided for
+    punishment_summary: Fine up to Rs 200 only.
+    fine_only: true
+    cognizable: false
+    bailable: true
+    compoundable: "no"
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "294"
+    title: Obscene acts and songs
+    punishment_summary: Up to 3 months, or fine, or both.
+    max_imprisonment: {months: 3}
+    cognizable: true
+    bailable: true
+    compoundable: "no"
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "302"
+    title: Punishment for murder
+    punishment_summary: Death or imprisonment for life, and fine.
+    max_imprisonment: death
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: court_of_session
+    verified: false
+
+  - section: "304A"
+    title: Causing death by negligence
+    punishment_summary: Up to 2 years, or fine, or both.
+    max_imprisonment: {years: 2}
+    cognizable: true
+    bailable: true
+    compoundable: "no"
+    triable_by: magistrate_first_class
+    verified: false
+
+  - section: "307"
+    title: Attempt to murder
+    punishment_summary: Up to 10 years and fine; if hurt is caused, imprisonment for life or as above.
+    max_imprisonment: life
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: court_of_session
+    verified: false
+
+  - section: "323"
+    title: Punishment for voluntarily causing hurt
+    punishment_summary: Up to 1 year, or fine up to Rs 1,000, or both.
+    max_imprisonment: {years: 1}
+    cognizable: false
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person to whom the hurt is caused
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "324"
+    title: Voluntarily causing hurt by dangerous weapons or means
+    punishment_summary: Up to 3 years, or fine, or both.
+    max_imprisonment: {years: 3}
+    cognizable: true
+    bailable: null      # unknown — conflicting recollection; must be verified
+    compoundable: null  # unknown — changed by amendment; must be verified
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "325"
+    title: Punishment for voluntarily causing grievous hurt
+    punishment_summary: Up to 7 years and fine.
+    max_imprisonment: {years: 7}
+    cognizable: true
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person to whom the hurt is caused
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "326"
+    title: Voluntarily causing grievous hurt by dangerous weapons or means
+    punishment_summary: Imprisonment for life, or up to 10 years, and fine.
+    max_imprisonment: life
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: magistrate_first_class
+    verified: false
+
+  - section: "354"
+    title: Assault or criminal force to woman with intent to outrage her modesty
+    punishment_summary: Not less than 1 year, up to 5 years, and fine.
+    max_imprisonment: {years: 5}
+    min_imprisonment: {years: 1}
+    offence_categories: [against_women]
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "363"
+    title: Punishment for kidnapping
+    punishment_summary: Up to 7 years and fine.
+    max_imprisonment: {years: 7}
+    offence_categories: [against_children]
+    cognizable: true
+    bailable: true
+    compoundable: "no"
+    triable_by: magistrate_first_class
+    notes: Kidnapping from lawful guardianship typically concerns a minor; confirm victim age for plea-bargaining exclusion.
+    verified: false
+
+  - section: "376"
+    title: Punishment for rape
+    punishment_summary: Rigorous imprisonment not less than 10 years, which may extend to imprisonment for life, and fine.
+    max_imprisonment: life
+    min_imprisonment: {years: 10}
+    offence_categories: [against_women]
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: court_of_session
+    verified: false
+
+  - section: "379"
+    title: Punishment for theft
+    punishment_summary: Up to 3 years, or fine, or both.
+    max_imprisonment: {years: 3}
+    cognizable: true
+    bailable: false
+    compoundable: with_permission
+    compoundable_by: The owner of the property stolen
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "380"
+    title: Theft in dwelling house, etc.
+    punishment_summary: Up to 7 years and fine.
+    max_imprisonment: {years: 7}
+    cognizable: true
+    bailable: false
+    compoundable: with_permission
+    compoundable_by: The owner of the property stolen
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "392"
+    title: Punishment for robbery
+    punishment_summary: Rigorous imprisonment up to 10 years and fine; up to 14 years if on a highway between sunset and sunrise.
+    max_imprisonment: {years: 10}
+    aggravated_max_imprisonment: {years: 14}
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: magistrate_first_class
+    notes: Use the aggravated maximum when the record shows highway robbery at night.
+    verified: false
+
+  - section: "395"
+    title: Punishment for dacoity
+    punishment_summary: Imprisonment for life, or rigorous imprisonment up to 10 years, and fine.
+    max_imprisonment: life
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: court_of_session
+    verified: false
+
+  - section: "406"
+    title: Punishment for criminal breach of trust
+    punishment_summary: Up to 3 years, or fine, or both.
+    max_imprisonment: {years: 3}
+    cognizable: true
+    bailable: false
+    compoundable: with_permission
+    compoundable_by: The owner of the property in respect of which the breach of trust was committed
+    triable_by: magistrate_first_class
+    verified: false
+
+  - section: "411"
+    title: Dishonestly receiving stolen property
+    punishment_summary: Up to 3 years, or fine, or both.
+    max_imprisonment: {years: 3}
+    cognizable: true
+    bailable: false
+    compoundable: with_permission
+    compoundable_by: The owner of the property stolen
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "420"
+    title: Cheating and dishonestly inducing delivery of property
+    punishment_summary: Up to 7 years and fine.
+    max_imprisonment: {years: 7}
+    offence_categories: []
+    cognizable: true
+    bailable: false
+    compoundable: with_permission
+    compoundable_by: The person cheated
+    triable_by: magistrate_first_class
+    verified: false
+
+  - section: "427"
+    title: Mischief causing damage to the amount of fifty rupees
+    punishment_summary: Up to 2 years, or fine, or both.
+    max_imprisonment: {years: 2}
+    cognizable: false
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person to whom the loss or damage is caused
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "447"
+    title: Punishment for criminal trespass
+    punishment_summary: Up to 3 months, or fine up to Rs 500, or both.
+    max_imprisonment: {months: 3}
+    cognizable: true
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person in possession of the property trespassed upon
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "498A"
+    title: Husband or relative of husband subjecting a woman to cruelty
+    punishment_summary: Up to 3 years and fine.
+    max_imprisonment: {years: 3}
+    offence_categories: [against_women]
+    cognizable: true
+    bailable: false
+    compoundable: "no"
+    triable_by: magistrate_first_class
+    notes: Compoundability differs by State amendment; verify for the State concerned.
+    verified: false
+
+  - section: "504"
+    title: Intentional insult with intent to provoke breach of the peace
+    punishment_summary: Up to 2 years, or fine, or both.
+    max_imprisonment: {years: 2}
+    cognizable: false
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person insulted
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "506"
+    title: Punishment for criminal intimidation
+    punishment_summary: Up to 2 years, or fine, or both. (Threat to cause death/grievous hurt etc. is recorded separately as 506-II.)
+    max_imprisonment: {years: 2}
+    cognizable: false
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person intimidated
+    triable_by: any_magistrate
+    verified: false
+
+  - section: "506-II"
+    title: Criminal intimidation — threat to cause death or grievous hurt, etc.
+    punishment_summary: Up to 7 years, or fine, or both.
+    max_imprisonment: {years: 7}
+    cognizable: false
+    bailable: true
+    compoundable: without_permission
+    compoundable_by: The person intimidated
+    triable_by: magistrate_first_class
+    verified: false
+
+  - section: "509"
+    title: Word, gesture or act intended to insult the modesty of a woman
+    punishment_summary: Up to 3 years and fine.
+    max_imprisonment: {years: 3}
+    offence_categories: [against_women]
+    cognizable: true
+    bailable: true
+    compoundable: with_permission
+    compoundable_by: The woman whom it was intended to insult
+    triable_by: any_magistrate
+    verified: false

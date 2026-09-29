@@ -1,0 +1,41 @@
+{
+ "features": [
+  "act_group",
+  "state",
+  "district",
+  "filing_year",
+  "case_type",
+  "n_accused"
+ ],
+ "categorical": {
+  "act_group": [
+   "Arms",
+   "IPC_hurt",
+   "IPC_murder",
+   "IPC_property",
+   "IPC_women",
+   "Minor_acts",
+   "NDPS"
+  ],
+  "state": [
+   "KA",
+   "MH",
+   "UP"
+  ],
+  "district": [
+   "Agra",
+   "Belagavi",
+   "Bengaluru Urban",
+   "Kalaburagi",
+   "Lucknow",
+   "Mysuru",
+   "Nagpur",
+   "Pune"
+  ],
+  "case_type": [
+   "criminal"
+  ]
+ },
+ "horizon_years": 3,
+ "demo": true
+}

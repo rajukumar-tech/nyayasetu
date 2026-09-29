@@ -1,0 +1,148 @@
+# Procedural rules and derived-punishment rules used by the deterministic engines.
+# Numbers here are the ONLY place thresholds live — code never hardcodes them.
+# Every rule is `verified: false` until checked against the BNSS / BNS / IPC text.
+act: RULES
+source: "BNSS 2023, BNS 2023, IPC 1860, CrPC 1973 (to be verified against India Code)"
+source_url: https://www.indiacode.nic.in/
+rules:
+  section_479:
+    ref: "BNSS s.479 (earlier CrPC s.436A)"
+    first_offender_fraction: [1, 3]
+    general_fraction: [1, 2]
+    excludes_death_or_life: true
+    multiple_offences_or_cases_bar: "479(2) — contested; engine shows both interpretations and routes to review"
+    accused_delay_excluded: true
+    court_may_order_continued_detention: true
+    superintendent_must_apply: true
+    verified: false
+
+  transition:
+    ref: "BNS s.358 / BNSS s.531 (savings)"
+    bns_commencement: 2024-07-01
+    punishment_law_before: IPC
+    punishment_law_from: BNS
+    note: "Offences committed before commencement keep IPC punishment; the IPC↔BNS mapping is display-only."
+    verified: false
+
+  default_bail:
+    ref: "BNSS s.187(3) (earlier CrPC s.167(2))"
+    long_period_days: 90
+    short_period_days: 60
+    long_period_if: "death, life imprisonment, or imprisonment for a term of not less than 10 years"
+    long_period_min_years: 10
+    counted_from: first_remand
+    right_lost_if_charge_sheet_filed_before_application: true
+    warn_days_before_deadline: 7
+    verified: false
+
+  surety_not_furnished:
+    ref: "BNSS s.479 / Supreme Court directions on poor prisoners (verify); MHA Support to Poor Prisoners scheme"
+    flag_after_days: 7
+    verified: false
+
+  prior_convictions:
+    ref: "BNSS s.479(1) proviso — 'never been convicted of any offence'"
+    counts: [final, under_appeal]
+    does_not_count: [set_aside, acquitted, discharged]
+    juvenile_adjudication_counts: false
+    juvenile_note: "Juvenile Justice Act s.24 removes disqualification attaching to a conviction; verify applicability."
+    under_appeal_note: "A conviction under appeal still stands until set aside — treated as a conviction and flagged."
+    verified: false
+
+  life_imprisonment_for_fractions:
+    ref: "IPC s.57 / BNS s.6"
+    equivalent_years: 20
+    note: "Used only to compute fractions (attempt/abetment) — life is never treated as 20 years for release purposes."
+    verified: false
+
+  derivations:
+    attempt:
+      ref: "IPC s.511 / BNS s.62"
+      fraction_of_max: [1, 2]
+      applies_when_no_express_provision: true
+      verified: false
+    abetment_committed:
+      ref: "IPC s.109 / BNS s.49"
+      fraction_of_max: [1, 1]
+      verified: false
+    abetment_not_committed:
+      ref: "IPC s.115-116 / BNS s.55-56"
+      fraction_of_max: [1, 4]
+      if_death_or_life_max_years: 7
+      verified: false
+    conspiracy:
+      ref: "IPC s.120B / BNS s.61(2)"
+      serious_threshold_years: 2
+      serious: same_as_abetment
+      otherwise_max_months: 6
+      verified: false
+    common_intention:
+      ref: "IPC s.34 / BNS s.3(5)"
+      fraction_of_max: [1, 1]
+      verified: false
+
+  plea_bargaining:
+    ref: "BNSS s.289-300 (earlier CrPC Chapter XXIA)"
+    max_imprisonment_years: 7
+    excluded_categories: [against_women, against_children, socio_economic]
+    excluded_note: "Offences against a woman or a child below 14 years, and notified socio-economic offences, are excluded."
+    verified: false
+
+  production_before_magistrate:
+    ref: "BNSS s.58 (earlier CrPC s.57); Constitution Art. 22(2)"
+    max_hours: 24
+    excludes_journey_time: true
+    verified: false
+
+  grounds_of_arrest:
+    ref: "BNSS s.47 (earlier CrPC s.50); Constitution Art. 22(1)"
+    verified: false
+
+  arrest_memo:
+    ref: "BNSS s.36 (earlier CrPC s.41B)"
+    verified: false
+
+  inform_relative:
+    ref: "BNSS s.48 (earlier CrPC s.50A)"
+    verified: false
+
+  woman_arrest_night:
+    ref: "BNSS s.43(5) (earlier CrPC s.46(4))"
+    verified: false
+
+  medical_examination:
+    ref: "BNSS s.53 (earlier CrPC s.54)"
+    verified: false
+
+  police_custody_limit:
+    ref: "BNSS s.187(2)"
+    max_days: 15
+    note: "BNSS allows police custody in parts within the first 40/60 days; verify."
+    verified: false
+
+  search_seizure_videography:
+    ref: "BNSS s.105, s.185"
+    verified: false
+
+  confession_to_police:
+    ref: "Bharatiya Sakshya Adhiniyam s.23 (earlier Evidence Act s.25)"
+    verified: false
+
+  speedy_trial:
+    ref: "Constitution Art. 21; Hussainara Khatoon line of cases (retrieve, never cite from memory)"
+    flag_if_pending_years: 3
+    verified: false
+
+  probation:
+    ref: "Probation of Offenders Act, 1958 ss.3-4, 6; BNSS s.401"
+    young_offender_age_below: 21
+    verified: false
+
+  lok_adalat:
+    ref: "Legal Services Authorities Act, 1987 s.19-20"
+    compoundable_only: true
+    verified: false
+
+  fir_delay:
+    flag_after_days: 2
+    verified: false
