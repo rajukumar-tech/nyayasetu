@@ -55,8 +55,19 @@ class RunReport:
     escalated: int = 0
 
 
-def _raise(db: Session, person: Person, case_id: str | None, kind: str, severity: str, message: str, key: str) -> bool:
-    if db.scalar(select(Alert.id).where(Alert.dedupe_key == key)) is not None:
+def _raise(db: Session, person: Person, case_id: str | None, kind: str, severity: str, message: str, key: str,
+           valid: set[str] | None = None) -> bool:
+    if valid is not None:
+        valid.add(key)
+    existing = db.scalar(select(Alert).where(Alert.dedupe_key == key))
+    if existing is not None:
+        if existing.acknowledged_at is None and existing.message != message:
+            existing.message = message  # keep open alerts current (e.g. the number of days overdue)
+        if existing.auto_resolved:  # the condition came back: reopen instead of silently staying closed
+            existing.auto_resolved, existing.acknowledged_at, existing.acknowledged_by = False, None, None
+            existing.message = message
+            existing.channel_log = existing.channel_log + [{"channel": "system", "at": datetime.now(timezone.utc).isoformat(),
+                                                            "status": "reopened: condition holds again"}]
         return False
     a = Alert(person_id=person.id, case_id=case_id, kind=kind, severity=severity, message=message, dedupe_key=key)
     a.channel_log = [ch.send(a, person) for ch in CHANNELS]
@@ -65,8 +76,13 @@ def _raise(db: Session, person: Person, case_id: str | None, kind: str, severity
     return True
 
 
+# alert kinds that describe a CURRENT condition; they are closed automatically when it stops holding
+CONDITION_KINDS = set(CRITICAL_CODES) | {"ELIGIBLE_OVERDUE", "ELIGIBLE_IN_30", "ELIGIBLE_IN_7", "ELIGIBLE_IN_0"}
+
+
 def alerts_for(db: Session, person: Person, out: ComputeOutcome, today: date, reason: str = "nightly") -> int:
     n = 0
+    valid: set[str] = set()  # dedupe keys of alerts whose condition holds right now
     for c in out.row.result["cases"]:
         cid = c["case_id"]
         status = c["status"]
@@ -75,23 +91,34 @@ def alerts_for(db: Session, person: Person, out: ComputeOutcome, today: date, re
             if code in CRITICAL_CODES:
                 sev = "critical" if code != "DEFAULT_BAIL_WINDOW_SOON" else "high"
                 n += _raise(db, person, cid, code, sev, f"{person.canonical_name}: {CRITICAL_CODES[code]}.",
-                            f"{person.id}:{cid}:{code}")
+                            f"{person.id}:{cid}:{code}", valid)
         if status == "ELIGIBLE":
             n += _raise(db, person, cid, "ELIGIBLE_OVERDUE", "high",
                         f"{person.canonical_name}: eligible under Section 479 since {c['eligible_from_date']} "
-                        f"({c['days_overdue']} days overdue).", f"{person.id}:{cid}:ELIGIBLE")
+                        f"({c['days_overdue']} days overdue).", f"{person.id}:{cid}:ELIGIBLE", valid)
         if status == "NOT_YET" and c.get("projected_date"):
             days = (date.fromisoformat(c["projected_date"]) - today).days
             for window in (30, 7, 0):
                 if days <= window:
                     n += _raise(db, person, cid, f"ELIGIBLE_IN_{window}", "medium" if window else "high",
                                 f"{person.canonical_name}: becomes eligible on {c['projected_date']} ({days} days).",
-                                f"{person.id}:{cid}:ELIGIBLE_IN_{window}:{c['projected_date']}")
+                                f"{person.id}:{cid}:ELIGIBLE_IN_{window}:{c['projected_date']}", valid)
                     break
-    if out.changed and out.previous_status and out.previous_status != out.row.status and reason == "document":
+    if out.changed and out.previous_status and out.previous_status != out.row.status and reason != "nightly":
+        what = {"document": "a new document", "release": "a recorded release", "transfer": "a recorded transfer",
+                "review": "a reviewer decision", "recompute": "a recompute", "case_update": "a case update",
+                "custody": "a custody update"}.get(reason, reason)
         n += _raise(db, person, None, "RESULT_CHANGED", "high",
-                    f"{person.canonical_name}: a new document changed the result from {out.previous_status} to "
+                    f"{person.canonical_name}: {what} changed the result from {out.previous_status} to "
                     f"{out.row.status}.", f"{person.id}:CHANGED:{out.row.input_hash[:16]}")
+    # close alerts whose condition no longer holds (released, charge sheet filed, status changed, ...)
+    now = datetime.now(timezone.utc)
+    for a in db.scalars(select(Alert).where(Alert.person_id == person.id, Alert.acknowledged_at.is_(None),
+                                            Alert.kind.in_(CONDITION_KINDS))):
+        if a.dedupe_key not in valid:
+            a.auto_resolved, a.acknowledged_at = True, now
+            a.channel_log = a.channel_log + [{"channel": "system", "at": now.isoformat(),
+                                              "status": f"auto-resolved: condition no longer holds ({reason})"}]
     return n
 
 

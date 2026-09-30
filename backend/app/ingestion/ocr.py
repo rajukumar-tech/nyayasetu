@@ -110,6 +110,18 @@ def _ocr_page(img_bytes: bytes, n: int, engine: OCRProvider) -> Page:
 
 
 def read_document(data: bytes, filename: str, engine: OCRProvider | None = None) -> list[Page]:
+    """Fails safely: any parser error on a damaged/mislabelled file becomes a user-facing IngestError, never a 500."""
+    try:
+        return _read_document(data, filename, engine)
+    except IngestError:
+        raise
+    except Exception as e:  # noqa: BLE001  (zip/xml/pdf parser internals raise many types)
+        kind = filename.rsplit(".", 1)[-1].upper() if "." in filename else "file"
+        raise IngestError(f"This {kind} file is damaged or is not really a {kind} and cannot be read "
+                          f"({type(e).__name__}). Re-save or re-scan it and upload again.")
+
+
+def _read_document(data: bytes, filename: str, engine: OCRProvider | None = None) -> list[Page]:
     engine = engine or TesseractOCR()
     name = filename.lower()
     if name.endswith(".txt"):

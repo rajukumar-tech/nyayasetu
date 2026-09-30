@@ -39,6 +39,18 @@ class User(Base):
     district: Mapped[str | None] = mapped_column(String(200))   # dlsa_admin scope
     language: Mapped[str] = mapped_column(String(8), default="en")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # None = awaiting approval
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_by: Mapped[str | None] = mapped_column(String(32))
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # older sessions are refused
+
+
+class RevokedToken(Base):
+    """Signed-out session tokens (by JWT id) — a token is refused after logout even before it expires."""
+    __tablename__ = "revoked_tokens"
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(32))
+    revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class Person(Base):
@@ -311,6 +323,7 @@ class Alert(Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acknowledged_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     escalated: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_resolved: Mapped[bool] = mapped_column(Boolean, default=False)  # closed because the condition no longer holds
     channel_log: Mapped[list[dict]] = mapped_column(JSON, default=list)
 
 

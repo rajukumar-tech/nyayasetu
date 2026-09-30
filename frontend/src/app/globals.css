@@ -38,7 +38,7 @@
   --color-review: var(--review);
   --color-review-bg: var(--review-bg);
   --color-neutral-bg: var(--neutral-bg);
-  --font-sans: var(--font-noto), var(--font-noto-kn), system-ui, sans-serif;
+  --font-sans: var(--font-noto), var(--font-noto-kn), var(--font-noto-hi), system-ui, sans-serif;
 }
 
 body {
@@ -67,3 +67,8 @@ body {
 .label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
 mark.src { background: #ffe8a3; padding: 0 .1rem; border-radius: 2px; }
 mark.src-active { background: #ffc94d; outline: 2px solid var(--accent); }
+
+/* long Kannada/Hindi words and unbroken identifiers must wrap instead of overflowing on small screens */
+body { overflow-wrap: anywhere; }
+table { overflow-wrap: normal; }
+td, th { overflow-wrap: anywhere; }

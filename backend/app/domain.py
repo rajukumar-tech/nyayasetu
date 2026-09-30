@@ -159,6 +159,9 @@ class Case:
     conviction_date: date | None = None
     acquittal_date: date | None = None
     status_confidence: float = 1.0
+    # document facts that contradict this record (see services.consistency): blocking → REVIEW, notes → shown
+    record_conflicts: list[str] = field(default_factory=list)
+    record_notes: list[str] = field(default_factory=list)
 
     def active_charges(self, on: date) -> list[Charge]:
         return [c for c in self.charges if c.dropped_on is None or c.dropped_on > on]

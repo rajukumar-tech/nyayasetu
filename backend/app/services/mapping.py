@@ -17,9 +17,11 @@ def source_from(raw: dict | None) -> d.SourceRef | None:
                        raw.get("text", ""), raw.get("doc_type", ""))
 
 
-def to_domain_person(p: m.Person) -> d.Person:
+def to_domain_person(p: m.Person, conflicts: dict | None = None) -> d.Person:
     cases = []
+    conflicts = conflicts or {}
     for c in p.cases:
+        cc = conflicts.get(c.id)
         cases.append(d.Case(
             id=c.id, status=d.CaseStatus(c.status), cnr=c.cnr or "",
             charges=[d.Charge(act=ch.act, section=ch.section, modifier=d.Modifier(ch.modifier) if ch.modifier else None,
@@ -33,7 +35,8 @@ def to_domain_person(p: m.Person) -> d.Person:
             offence_date=c.offence_date, fir_date=c.fir_date, first_remand_date=c.first_remand_date,
             charge_sheet_date=c.charge_sheet_date, default_bail_application_date=c.default_bail_application_date,
             bail_granted_date=c.bail_granted_date, conviction_date=c.conviction_date, acquittal_date=c.acquittal_date,
-            status_confidence=c.status_confidence))
+            status_confidence=c.status_confidence,
+            record_conflicts=list(cc.blocking) if cc else [], record_notes=list(cc.notes) if cc else []))
     return d.Person(
         id=p.id, name=p.canonical_name, cases=cases, dob=p.dob, gender=p.gender,
         custody_events=[d.CustodyEvent(type=d.CustodyType(e.type), start=e.start, end=e.end, case_id=e.case_id, jail=e.jail,

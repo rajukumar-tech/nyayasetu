@@ -66,7 +66,7 @@ Web: http://localhost:3000 · API docs: http://localhost:8000/docs
 ### Local (no Docker)
 ```bash
 python -m venv .venv && .venv/Scripts/pip install -r backend/requirements.txt   # or .venv/bin/pip
-cd backend && NYAYA_DEMO_MODE=true python -m app.seed --reset
+cd backend && NYAYA_DEMO_MODE=true python -m app.seed --reset   # loads the two demo prisoners (add --full for edge cases)
 uvicorn app.main:app --port 8000
 cd ../frontend && npm install && npm run dev
 ```
@@ -84,7 +84,31 @@ Password for all: `nyaya-demo-2026`
 | Reviewer | reviewer@nyayasetu.test |
 | System admin | admin@nyayasetu.test |
 
-A 2-minute walkthrough is in [docs/DEMO.md](docs/DEMO.md).
+The demo data is exactly two synthetic prisoners: **Ravi Kumar** (not yet eligible: 242 counted days vs a 366-day
+threshold) and **Suresh Kumar** (eligible: 961 vs 853). A walkthrough — including adding a prisoner, the reviewer's
+check, assigning a lawyer, a new lawyer, access restriction, Kannada/Hindi and the audit log — is in
+[docs/DEMO.md](docs/DEMO.md).
+
+### Who does what
+| Role | Does | Does not see |
+|---|---|---|
+| System admin | dashboard: prisoner register, **add prisoners**, assign lawyers, lawyer & user accounts, legal data, audit log | case details, documents, Defense Insights, drafts |
+| Reviewer | checks new prisoners' details, uncertain extractions, delay attribution, identity matches | prisoner files outside the queue |
+| Legal-aid lawyer | **only assigned prisoners**: full case, documents (**only the lawyer uploads**), Defense Insights, drafts | anyone else's prisoners |
+| Jail staff | own jail: add prisoners, transfers, releases, case outcomes, superintendent's application | Defense Insights, lawyers' drafts |
+| DLSA / UTRC | own district: dashboard, workload, assignment, lawyer accounts | Defense Insights, lawyers' drafts |
+
+A new prisoner goes to the review queue first; a lawyer can be assigned only after the reviewer verifies it. All of this
+is enforced by the API, not just hidden in the UI.
+
+### Deploying (beyond the demo)
+- `NYAYA_DEMO_MODE=false` — the sign-in page then hides the demo-account list and legal data is **not** auto-verified.
+- Create real accounts through the admin screen; do not load the demo seed (`app.seed` creates the fixed demo users).
+- `NYAYA_JWT_SECRET` = 64+ random characters; `NYAYA_DOCUMENTS_ENCRYPTION_KEY` = a Fernet key (documents encrypted at rest).
+- `NYAYA_DATABASE_URL` = PostgreSQL (Docker Compose provides one); run `alembic upgrade head` for schema changes.
+- `NYAYA_CORS_ORIGINS` and `NEXT_PUBLIC_API_URL` = your real HTTPS origins; serve both behind HTTPS.
+- Build the web app with `npm run build && npm start` (security headers are set in `next.config.ts`).
+- Verify every legal-data record against the official text (Admin → Legal data) before relying on any result.
 
 ### Optional: Claude for extraction and drafting polish
 Set `NYAYA_LLM_PROVIDER=anthropic` and `NYAYA_ANTHROPIC_API_KEY`. Default model `claude-opus-5-5`, structured JSON
@@ -92,23 +116,33 @@ outputs validated by Pydantic, prompts versioned in `prompts/`. Without a key ev
 
 ## Tests
 ```bash
-cd backend && python -m pytest                    # 88 tests: all 58 named checklist items + branch tests
-make coverage                                     # eligibility engine: 100% branch coverage
-cd frontend && npx playwright test                # key UI flows, desktop + mobile (needs the seeded API)
+cd backend && python -m pytest                    # unit, regression, API flow tests + the 1,000 synthetic scenarios
+cd backend && python -m app.scenario_check        # full 1,000-scenario run incl. ~13k-request authorization sweep → docs/TEST_REPORT.md
+make coverage                                     # eligibility engine branch coverage
+cd frontend && npm run check:i18n                 # every UI string in English, Kannada and Hindi; no hard-coded text
+cd frontend && PW_CHANNEL=chrome npx playwright test   # UI flows, desktop + mobile (needs the seeded API)
 python ml/train_er.py && python ml/train_delay_model.py
 cd backend && python -m app.evaluation            # writes docs/EVALUATION.md
 ```
+Results of the latest run: [docs/TEST_REPORT.md](docs/TEST_REPORT.md).
 
 ## Screenshots
+All from the default demo (two synthetic prisoners). Regenerate with
+`SCREENSHOTS=1 PW_CHANNEL=chrome npx playwright test screenshots --project=desktop` in `frontend/`.
+
 | | |
 |---|---|
-| ![Eligibility trace](docs/screenshots/eligibility.png) | ![Timeline](docs/screenshots/timeline.png) |
-| ![Defense insights](docs/screenshots/defense-insights.png) | ![Source highlights](docs/screenshots/source-highlights.png) |
-| ![Grounded draft](docs/screenshots/draft.png) | ![DLSA dashboard](docs/screenshots/dlsa.png) |
+| **Sign in** — demo accounts appear only in demo mode ![Sign in](docs/screenshots/login.png) | **Lawyer's dashboard** — only assigned prisoners ![Lawyer dashboard](docs/screenshots/lawyer-dashboard.png) |
+| **Ravi Kumar — not eligible**: 263 − 21 = 242 < 366 ![Not eligible](docs/screenshots/not-eligible.png) | **Suresh Kumar — eligible**: 991 − 30 = 961 ≥ 853 ![Eligible](docs/screenshots/eligibility.png) |
+| **Timeline** — custody, hearings coloured by who caused the delay ![Timeline](docs/screenshots/timeline.png) | **Source highlights** — every fact at its place in the document ![Source highlights](docs/screenshots/source-highlights.png) |
+| **Defense Insights** — assigned lawyer only ![Defense insights](docs/screenshots/defense-insights.png) | **Grounded draft** — every sentence checked by the verifier ![Grounded draft](docs/screenshots/draft.png) |
+| **ಕನ್ನಡ** ![Kannada](docs/screenshots/kannada.png) | **हिन्दी** ![Hindi](docs/screenshots/hindi.png) |
+| **Admin** — register, lawyer assignment after review, audit log, users ![Admin](docs/screenshots/admin.png) | **Reviewer** — review queue ![Reviewer](docs/screenshots/reviewer.png) |
+| **DLSA / UTRC** — district heatmap and workload ![DLSA dashboard](docs/screenshots/dlsa.png) | **Phone** ![Sign in on a phone](docs/screenshots/login-mobile.png) |
 
 ## Documentation
 [PLAN](docs/PLAN.md) · [DECISIONS](docs/DECISIONS.md) · [EVALUATION](docs/EVALUATION.md) ·
-[PRIVACY](docs/PRIVACY.md) · [LEGAL_DATA](docs/LEGAL_DATA.md) · [DEMO](docs/DEMO.md)
+[PRIVACY](docs/PRIVACY.md) · [LEGAL_DATA](docs/LEGAL_DATA.md) · [DEMO](docs/DEMO.md) · [TEST_REPORT](docs/TEST_REPORT.md)
 
 ## Repository layout
 ```
@@ -126,4 +160,10 @@ prompts/       versioned LLM prompts   ml/  training scripts, models, reports   
 - Evaluation is on synthetic data; real-world numbers need reviewed real (anonymised) records.
 - The shipped judgment corpus is a labelled synthetic test corpus; load the public HC corpus for real use.
 - Delay model trained on a synthetic stand-in until DDL files are downloaded.
-- Hindi UI is scaffolded (falls back to English); Kannada drafts need review by a Kannada-speaking lawyer.
+- The UI is fully translated into Kannada and Hindi; the engine's rule-by-rule trace and recorded details stay in
+  English (labelled). Drafts can be generated in English and Kannada (not Hindi); Kannada drafts need review by a
+  Kannada-speaking lawyer. Translations were written without a native-speaker review.
+- Identity resolution proposes only part of the true same-person pairs in the synthetic set (see TEST_REPORT); the
+  rest depend on a reviewer noticing. It never merges automatically.
+- Document facts do not update the case record by themselves; a contradicting document sends the case to REVIEW and
+  a person corrects the record.

@@ -52,8 +52,9 @@ Upload documents → Read them → Pull out facts → Match the person → Build
    | Counted detention ≥ threshold? | ELIGIBLE (date, days overdue) or NOT YET (expected date) |
    | Any unsure fact or unverified law? | Downgraded to REVIEW, listing what to check |
 
-   Example — Ravi Kumar, IPC 380 (max 7 years): 949 days in custody − 60 days he asked for = 889 counted; first-time
-   offender threshold 853 → **ELIGIBLE since 24 Aug 2026, 36 days overdue.**
+   Example — Suresh Kumar, IPC 420 (max 7 years): 991 days in custody − 30 days he asked for = 961 counted; first-time
+   offender threshold 853 → **ELIGIBLE: threshold reached 108 days ago.** Ravi Kumar, BNS 303(2) (max 3 years):
+   263 − 21 = 242 counted, threshold 366 → **not yet eligible (124 more days).**
 
    Separate checks: **default bail** (no charge sheet within 60/90 days of first remand — apply before it is filed),
    **bail granted but still jailed** after 7 days (surety not paid → poor-prisoner scheme), **time served** exceeding a

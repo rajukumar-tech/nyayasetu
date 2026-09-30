@@ -8,9 +8,10 @@ from app.models import AuditLog, User
 
 
 def audit(db: Session, user: User | None, action: str, entity_type: str, entity_id: str | None = None,
-          before: Any = None, after: Any = None, detail: str | None = None, commit: bool = True) -> None:
+          before: Any = None, after: Any = None, detail: str | None = None, commit: bool = True,
+          role: str | None = None) -> None:
     """Append-only audit entry. Called for every view, edit and decision."""
-    db.add(AuditLog(user_id=user.id if user else None, role=user.role if user else "system", action=action,
+    db.add(AuditLog(user_id=user.id if user else None, role=role or (user.role if user else "system"), action=action,
                     entity_type=entity_type, entity_id=entity_id, before=before, after=after, detail=detail))
     if commit:
         db.commit()

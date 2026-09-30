@@ -5,35 +5,37 @@ import { useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { ErrorBox, Loading, Severity } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useI18n } from "@/lib/i18n";
+import { apiErrorText, useI18n, type Key } from "@/lib/i18n";
+import { en } from "@/lib/i18n/en";
 
 interface Alert { id: string; person_id: string; person: string; kind: string; severity: string; message: string;
   created_at: string; escalated: boolean }
 
 export default function Alerts() {
-  const { t } = useI18n();
+  const { t, fdt } = useI18n();
   const [rows, setRows] = useState<Alert[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const load = () => api<Alert[]>("/api/alerts").then(setRows).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  const load = () => api<Alert[]>("/api/alerts").then(setRows).catch((e) => setError(apiErrorText(t, e)));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   async function ack(id: string) {
-    await api(`/api/alerts/${id}/ack`, { method: "POST" });
-    load();
+    try { await api(`/api/alerts/${id}/ack`, { method: "POST" }); load(); } catch (e) { setError(apiErrorText(t, e)); }
   }
   const order = ["critical", "high", "medium", "low"];
+  // alert text is rebuilt from its kind in the viewer's language; the stored English message is kept as a tooltip
+  const text = (a: Alert) => (`alert_${a.kind}` in en ? t(`alert_${a.kind}` as Key, { name: a.person }) : a.message);
   return (
     <Shell roles={["legal_aid_lawyer", "jail_staff", "dlsa_admin"]}>
       <h1 className="text-2xl font-bold mb-4">{t("alerts")}</h1>
       <ErrorBox error={error} />
-      {!rows ? <Loading /> : rows.length === 0 ? <p className="text-muted">{t("noItems")}</p> : (
+      {!rows ? (!error && <Loading />) : rows.length === 0 ? <p className="text-muted">{t("noItems")}</p> : (
         <ul className="space-y-2">
           {[...rows].sort((a, b) => order.indexOf(a.severity) - order.indexOf(b.severity)).map((a) => (
             <li key={a.id} className="card p-3 flex flex-wrap gap-3 items-center">
               <Severity level={a.severity} />
-              <div className="flex-1 min-w-60">
+              <div className="flex-1 min-w-0">
                 <Link href={`/prisoners/${a.person_id}`} className="font-semibold text-navy-2 hover:underline">{a.person}</Link>
-                <p className="text-sm">{a.message}</p>
-                <p className="text-xs text-muted">{a.kind} · {new Date(a.created_at).toLocaleString()}{a.escalated ? " · escalated" : ""}</p>
+                <p className="text-sm" title={a.message}>{text(a)}</p>
+                <p className="text-xs text-muted">{fdt(a.created_at)}{a.escalated ? ` · ${t("escalated")}` : ""}</p>
               </div>
               <button className="btn btn-ghost !py-1" onClick={() => ack(a.id)}>{t("acknowledge")}</button>
             </li>

@@ -1,7 +1,7 @@
 """HTTP API. Every endpoint is RBAC-checked and every view/edit/decision is audit-logged."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -10,19 +10,24 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audit
 from app.core.config import settings
-from app.core.rbac import Perm, Role, can_see_insights, can_see_person, ensure_person_access, has_perm, require
-from app.core.security import create_token, current_user, hash_password, verify_password
+from app.core.rbac import (
+    Perm, Role, can_see_insights, can_see_person, ensure_person_access, has_perm, not_found, require,
+)
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.core.security import create_token, current_user, hash_password, token_claims, verify_password
 from app.db import get_db
 from app.defense.service import refresh_insights
 from app.delays.service import attribute_hearings
+from app.domain import Attribution
 from app.drafting.export import to_docx, to_pdf
 from app.drafting.service import create_draft
-from app.eligibility.engine import urgency_rank
+from app.eligibility.engine import RULE_VERSION, urgency_rank
 from app.ingestion.ocr import IngestError
 from app.ingestion.pipeline import ingest
 from app.models import (
     Alert, AuditLog, Case, DefenseInsight, Document, Draft, ExtractedFact, Hearing, LegalVerification, MergeEvent,
-    Person, ReviewItem, User,
+    Person, ReviewItem, RevokedToken, User,
 )
 from app.monitoring.alerts import alerts_for, run_nightly
 from app.prediction.priority import LABEL as PRIORITY_LABEL, long_pending_probability, priority_score
@@ -30,7 +35,7 @@ from app.resolution.matcher import PairModel, resolve, score_pair
 from app.resolution.merge import merge_persons, person_record, unmerge
 from app.schemas import (
     AssignIn, DraftCreate, DraftPatch, FactPatch, InsightPatch, LoginIn, MergeIn, ReviewResolve, TokenOut, UserCreate,
-    VerifyIn,
+    UserPatch, VerifyIn,
 )
 from app.services.eligibility import compute_for_person, current_result, load_kb
 
@@ -53,10 +58,43 @@ def health(db: Session = Depends(get_db)) -> dict:
 @router.post("/auth/login", response_model=TokenOut)
 def login(body: LoginIn, db: Session = Depends(get_db)) -> TokenOut:
     u = db.scalar(select(User).where(User.email == body.email.lower().strip()))
+    if u is not None and _recent_failures(db, u.id) >= LOCKOUT_ATTEMPTS:
+        audit(db, None, "login_locked", "user", u.id, detail=f"{LOCKOUT_ATTEMPTS}+ failures in {LOCKOUT_MINUTES} min",
+              role="anonymous")
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            f"Too many failed sign-in attempts. Try again in {LOCKOUT_MINUTES} minutes.")
     if u is None or not u.active or not verify_password(body.password, u.hashed_password):
+        # the password is never logged; the attempted account is recorded only if it exists
+        reason = "unknown account" if u is None else "account disabled" if not u.active else "wrong password"
+        audit(db, None, "login_failed", "user", u.id if u else None, detail=reason, role="anonymous")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
     audit(db, u, "login", "user", u.id)
-    return TokenOut(access_token=create_token(u), user=_user(u))
+    # the id of this login's audit entry lets the admin screen show "this session" (entries after it)
+    session_audit_id = db.scalar(select(func.max(AuditLog.id)).where(AuditLog.entity_id == u.id, AuditLog.action == "login"))
+    return TokenOut(access_token=create_token(u), user=_user(u) | {"session_audit_id": session_audit_id})
+
+
+LOCKOUT_ATTEMPTS, LOCKOUT_MINUTES = 5, 15
+
+
+def _recent_failures(db: Session, uid: str) -> int:
+    since = datetime.now(timezone.utc) - timedelta(minutes=LOCKOUT_MINUTES)
+    last_ok = db.scalar(select(func.max(AuditLog.id)).where(AuditLog.entity_id == uid, AuditLog.action == "login"))
+    q = select(func.count(AuditLog.id)).where(AuditLog.entity_id == uid, AuditLog.action == "login_failed",
+                                              AuditLog.ts >= since)
+    if last_ok:
+        q = q.where(AuditLog.id > last_ok)
+    return db.scalar(q) or 0
+
+
+@router.post("/auth/logout")
+def logout(creds: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+           user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    jti = token_claims(creds).get("jti")
+    if jti and db.get(RevokedToken, jti) is None:
+        db.add(RevokedToken(jti=jti, user_id=user.id))  # this token is refused from now on, even before it expires
+    audit(db, user, "logout", "user", user.id)
+    return {"ok": True}
 
 
 @router.get("/auth/me")
@@ -79,8 +117,19 @@ def _scoped_persons(db: Session, user: User) -> list[Person]:
     return list(db.scalars(q))
 
 
-def _summary(db: Session, p: Person, with_priority: bool = False) -> dict:
+def _fresh_result(db: Session, p: Person, kb=None):
+    """The stored result, recomputed first if it was computed for an earlier date or an older
+    legal-data version — a stale result is never shown as current."""
     r = current_result(db, p.id)
+    if r is not None and r.result.get("as_of") == settings.today().isoformat() and r.rule_version == RULE_VERSION:
+        kb = kb or load_kb(db)
+        if r.legal_data_version == kb.version:
+            return r
+    return compute_for_person(db, p, kb).row
+
+
+def _summary(db: Session, p: Person, with_priority: bool = False, kb=None) -> dict:
+    r = _fresh_result(db, p, kb)
     cases = r.result["cases"] if r else []
     urgency = min((c.get("urgency") or c["status"] for c in cases), key=urgency_rank, default="NOT_APPLICABLE") if cases else "NOT_APPLICABLE"
     for c in cases:
@@ -94,7 +143,9 @@ def _summary(db: Session, p: Person, with_priority: bool = False) -> dict:
            "custody_days": max((c.get("custody_days", 0) for c in cases), default=0),
            "needs_verification": sum(len(c.get("needs_verification", [])) for c in cases),
            "cases": [{"id": c.id, "cnr": c.cnr, "status": c.status, "charges": [f"{ch.act} {ch.section}" for ch in c.charges]}
-                     for c in p.cases], "assigned_lawyer_id": p.assigned_lawyer_id}
+                     for c in p.cases], "assigned_lawyer_id": p.assigned_lawyer_id,
+           "demo_label": (p.identifiers or {}).get("demo_label"), "as_of": r.result.get("as_of") if r else None,
+           "intake": (p.identifiers or {}).get("intake", "verified")}
     if with_priority:
         ch = next((ch for c in p.cases if c.status in ("investigation", "charge_sheet_filed", "trial") for ch in c.charges), None)
         pl = long_pending_probability(ch.act, ch.section, "KA", p.district or "", p.cases[0].fir_year or 2024) if ch and p.cases else None
@@ -104,40 +155,56 @@ def _summary(db: Session, p: Person, with_priority: bool = False) -> dict:
 
 
 @router.get("/persons")
-def list_persons(user: User = Depends(require(Perm.VIEW_PRISONER)), db: Session = Depends(get_db),
-                 q: str | None = None, status_filter: str | None = Query(None, alias="status")) -> list[dict]:
+def list_persons(response: Response, user: User = Depends(require(Perm.VIEW_PRISONER)), db: Session = Depends(get_db),
+                 q: str | None = Query(None, max_length=200), status_filter: str | None = Query(None, alias="status"),
+                 limit: int | None = Query(None, ge=1, le=1000), offset: int = Query(0, ge=0)) -> list[dict]:
+    # Scope is applied FIRST (in SQL); search, filters and pagination only ever narrow that scoped set.
     persons = _scoped_persons(db, user)
+    q = (q or "").strip() or None
     if q:
         from app.resolution.normalise import phonetic_key
         k = phonetic_key(q)
-        persons = [p for p in persons if q.lower() in p.canonical_name.lower() or (k and k in phonetic_key(p.canonical_name))]
-    rows = [_summary(db, p, with_priority=True) for p in persons]
+        persons = [p for p in persons if q.lower() in p.canonical_name.lower()
+                   or any(q.lower() in v.lower() for v in p.name_variants or [])
+                   or (len(k) >= 3 and k in phonetic_key(p.canonical_name))]
+    kb = load_kb(db)
+    rows = [_summary(db, p, with_priority=True, kb=kb) for p in persons]
     if status_filter:
         rows = [r for r in rows if r["status"] == status_filter or r["urgency"] == status_filter]
-    rows.sort(key=lambda r: (urgency_rank(r["urgency"]), -(r.get("priority") or 0)))
-    audit(db, user, "list", "person", None, detail=f"{len(rows)} rows")
+    rows.sort(key=lambda r: (urgency_rank(r["urgency"]), -(r.get("priority") or 0), r["name"], r["id"]))
+    response.headers["X-Total-Count"] = str(len(rows))
+    total = len(rows)
+    rows = rows[offset: offset + limit if limit else None]
+    if q or status_filter:
+        audit(db, user, "search", "person", None, detail=f"query={q!r} status={status_filter!r}: {total} match(es)")
+    else:
+        audit(db, user, "list", "person", None, detail=f"{total} rows")
     return rows
 
 
 @router.get("/persons/{pid}")
 def get_person(pid: str, user: User = Depends(require(Perm.VIEW_PRISONER)), db: Session = Depends(get_db)) -> dict:
-    p = ensure_person_access(user, db.get(Person, pid))
-    r = current_result(db, p.id) or compute_for_person(db, p).row
+    p = ensure_person_access(user, db.get(Person, pid), db)
+    r = _fresh_result(db, p)
     docs = db.scalars(select(Document).where(Document.person_id == p.id).order_by(Document.created_at)).all()
     facts = db.scalars(select(ExtractedFact).where(ExtractedFact.person_id == p.id)).all()
     kb = load_kb(db)
     audit(db, user, "view", "person", p.id)
+    lawyer = db.get(User, p.assigned_lawyer_id) if p.assigned_lawyer_id else None
     return {
-        **_summary(db, p), "dob": p.dob.isoformat() if p.dob else None, "name_variants": p.name_variants,
+        **_summary(db, p, kb=kb), "dob": p.dob.isoformat() if p.dob else None, "name_variants": p.name_variants,
+        "assigned_lawyer": lawyer.name if lawyer else None, "addresses": p.addresses,
         "identifiers": {k: v for k, v in p.identifiers.items() if k not in ("expected_status",)},
         "can_see_insights": can_see_insights(user, p), "can_draft": has_perm(user, Perm.CREATE_DRAFTS),
         "eligibility": r.result, "rule_version": r.rule_version, "legal_data_version": r.legal_data_version,
-        "computed_at": r.computed_at.isoformat(),
+        "computed_at": _ts(r.computed_at),
         "case_details": [{
             "id": c.id, "cnr": c.cnr, "case_numbers": c.case_numbers, "court": c.court, "status": c.status,
             "fir_number": c.fir_number, "police_station": c.police_station, "offence_date": _iso(c.offence_date),
             "first_remand_date": _iso(c.first_remand_date), "charge_sheet_date": _iso(c.charge_sheet_date),
-            "bail_granted_date": _iso(c.bail_granted_date),
+            "bail_granted_date": _iso(c.bail_granted_date), "fir_date": _iso(c.fir_date),
+            "default_bail_application_date": _iso(c.default_bail_application_date),
+            "acquittal_date": _iso(c.acquittal_date), "conviction_date": _iso(c.conviction_date),
             "charges": [{"act": ch.act, "section": ch.section, "modifier": ch.modifier, "confidence": ch.confidence,
                          "record": _record_view(kb, ch.act, ch.section)} for ch in c.charges],
             "hearings": [{"id": h.id, "date": _iso(h.date), "next_date": _iso(h.next_date), "reason": h.reason_text,
@@ -159,6 +226,14 @@ def _iso(d) -> str | None:
     return d.isoformat() if d else None
 
 
+def _ts(dt: datetime | None) -> str | None:
+    """Timestamps are stored in UTC; SQLite drops the zone, so re-attach it before sending (otherwise the
+    browser would read them as local time and show them 5½ hours off in India)."""
+    if dt is None:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+
 def _record_view(kb, act: str, section: str) -> dict | None:
     rec = kb.get(act, section)
     if rec is None:
@@ -177,21 +252,31 @@ def _fact(f: ExtractedFact) -> dict:
 
 @router.post("/persons/{pid}/recompute")
 def recompute(pid: str, user: User = Depends(require(Perm.VIEW_PRISONER)), db: Session = Depends(get_db)) -> dict:
-    p = ensure_person_access(user, db.get(Person, pid))
-    out = compute_for_person(db, p)
-    audit(db, user, "recompute", "eligibility", p.id, after={"status": out.row.status, "changed": out.changed})
-    return {"status": out.row.status, "changed": out.changed}
+    p = ensure_person_access(user, db.get(Person, pid), db)
+    out = compute_for_person(db, p, commit=False)
+    alerts_for(db, p, out, settings.today(), reason="recompute")
+    audit(db, user, "recompute", "eligibility", p.id,
+          after={"status": out.row.status, "changed": out.changed, "previous": out.previous_status})
+    return {"status": out.row.status, "changed": out.changed, "previous_status": out.previous_status,
+            "computed_at": _ts(out.row.computed_at)}
 
 
 @router.post("/persons/{pid}/assign")
 def assign(pid: str, body: AssignIn, user: User = Depends(require(Perm.ASSIGN_LAWYERS)), db: Session = Depends(get_db)) -> dict:
-    p = ensure_person_access(user, db.get(Person, pid))
+    from app.api.lifecycle import assignable_person, intake_status
+    p = assignable_person(db, user, pid)
+    if intake_status(p) != "verified":
+        raise HTTPException(409, "This prisoner's details are still waiting for the reviewer's verification — "
+                                 "assign a lawyer after the review.")
     lawyer = db.get(User, body.lawyer_id)
-    if lawyer is None or lawyer.role != Role.LAWYER:
-        raise HTTPException(400, "Not a legal-aid lawyer")
+    if lawyer is None or lawyer.role != Role.LAWYER or not lawyer.active:
+        raise HTTPException(400, "Not an active legal-aid lawyer")
     before = p.assigned_lawyer_id
+    if before == lawyer.id:
+        return {"ok": True, "unchanged": True}
     p.assigned_lawyer_id = lawyer.id
-    audit(db, user, "assign_lawyer", "person", p.id, before=before, after=lawyer.id)
+    # the previous lawyer loses access on their very next request (scope is checked per request, not cached)
+    audit(db, user, "reassign_lawyer" if before else "assign_lawyer", "person", p.id, before=before, after=lawyer.id)
     return {"ok": True}
 
 
@@ -199,7 +284,11 @@ def assign(pid: str, body: AssignIn, user: User = Depends(require(Perm.ASSIGN_LA
 @router.post("/persons/{pid}/documents")
 async def upload(pid: str, file: UploadFile = File(...), case_id: str | None = Form(None),
                  user: User = Depends(require(Perm.UPLOAD_DOCUMENTS)), db: Session = Depends(get_db)) -> dict:
-    p = ensure_person_access(user, db.get(Person, pid))
+    p = ensure_person_access(user, db.get(Person, pid), db)
+    if Role(user.role) == Role.LAWYER and p.assigned_lawyer_id != user.id:  # (already implied by scope; explicit)
+        raise not_found()
+    if case_id and not any(c.id == case_id for c in p.cases):
+        raise HTTPException(422, "The selected case does not belong to this prisoner.")
     data = await file.read()
     try:
         doc, created = ingest(db, data, file.filename or "upload.bin", user, p, case_id,
@@ -220,9 +309,9 @@ async def upload(pid: str, file: UploadFile = File(...), case_id: str | None = F
 def get_document(did: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     d = db.get(Document, did)
     if d is None:
-        raise HTTPException(404, "Document not found")
-    if not has_perm(user, Perm.REVIEW_QUEUE):
-        ensure_person_access(user, db.get(Person, d.person_id) if d.person_id else None)
+        raise not_found()
+    if not has_perm(user, Perm.REVIEW_QUEUE):  # reviewers read documents through the review queue
+        ensure_person_access(user, db.get(Person, d.person_id) if d.person_id else None, db, "document", d.id)
     facts = db.scalars(select(ExtractedFact).where(ExtractedFact.document_id == d.id)).all()
     audit(db, user, "view", "document", d.id)
     return {"id": d.id, "filename": d.filename, "doc_type": d.doc_type, "doc_type_confidence": d.doc_type_confidence,
@@ -235,10 +324,12 @@ def get_document(did: str, user: User = Depends(current_user), db: Session = Dep
 def patch_fact(fid: str, body: FactPatch, user: User = Depends(require(Perm.CORRECT_FACTS)), db: Session = Depends(get_db)) -> dict:
     f = db.get(ExtractedFact, fid)
     if f is None:
-        raise HTTPException(404, "Fact not found")
+        raise not_found()
     p = db.get(Person, f.person_id) if f.person_id else None
     if Role(user.role) == Role.LAWYER:
-        ensure_person_access(user, p)
+        ensure_person_access(user, p, db, "fact", f.id)
+    if body.action == "correct" and (body.value is None or str(body.value).strip() == ""):
+        raise HTTPException(422, "A corrected value is required.")
     before = {"value": f.effective_value, "status": f.review_status}
     f.review_status = {"confirm": "confirmed", "correct": "corrected", "reject": "rejected"}[body.action]
     if body.action == "correct":
@@ -252,7 +343,10 @@ def patch_fact(fid: str, body: FactPatch, user: User = Depends(require(Perm.CORR
         item.status, item.resolved_by, item.resolution = "resolved", user.id, {"action": body.action, "value": body.value}
     audit(db, user, f"fact_{body.action}", "fact", f.id, before=before, after={"value": f.effective_value, "status": f.review_status})
     if p:
+        out = compute_for_person(db, p, commit=False)  # a corrected/rejected fact can change what needs verification
+        alerts_for(db, p, out, settings.today(), reason="review")
         refresh_insights(db, p)
+    db.commit()
     return _fact(f)
 
 
@@ -260,8 +354,10 @@ def patch_fact(fid: str, body: FactPatch, user: User = Depends(require(Perm.CORR
 @router.get("/persons/{pid}/insights")
 def insights(pid: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     p = db.get(Person, pid)
-    if p is None:
-        raise HTTPException(404, "Prisoner record not found")
+    if p is None or p.merged_into_id or (not can_see_person(user, p) and not can_see_insights(user, p)):
+        if p is not None:
+            audit(db, user, "denied", "defense_insights", p.id, detail="outside assignment/scope")
+        raise not_found()
     if not has_perm(user, Perm.VIEW_DEFENSE_INSIGHTS) or not can_see_insights(user, p):
         audit(db, user, "denied", "defense_insights", p.id)
         raise HTTPException(403, "Defense Insights are visible only to the assigned lawyer")
@@ -279,9 +375,10 @@ def decide_insight(iid: str, body: InsightPatch, user: User = Depends(require(Pe
                    db: Session = Depends(get_db)) -> dict:
     i = db.get(DefenseInsight, iid)
     if i is None:
-        raise HTTPException(404, "Insight not found")
+        raise not_found()
     if not can_see_insights(user, db.get(Person, i.person_id)):
-        raise HTTPException(403, "Defense Insights are visible only to the assigned lawyer")
+        audit(db, user, "denied", "defense_insight", i.id)
+        raise not_found()
     before = i.status
     i.status = body.status
     audit(db, user, f"insight_{body.status}", "defense_insight", i.id, before=before, after=body.status, detail=body.note)
@@ -291,13 +388,14 @@ def decide_insight(iid: str, body: InsightPatch, user: User = Depends(require(Pe
 # ------------------------------------------------------------------ drafts
 @router.post("/persons/{pid}/drafts")
 def new_draft(pid: str, body: DraftCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    p = ensure_person_access(user, db.get(Person, pid))
+    p = ensure_person_access(user, db.get(Person, pid), db, "draft")
     case = db.get(Case, body.case_id)
     if case is None or case not in p.cases:
         raise HTTPException(404, "Case not found for this prisoner")
     lawyer = has_perm(user, Perm.CREATE_DRAFTS) and can_see_insights(user, p)
     superintendent = has_perm(user, Perm.SUPERINTENDENT_APPLICATION) and body.type == "section_479"
     if not (lawyer or superintendent):
+        audit(db, user, "denied", "draft", p.id, detail=f"create {body.type}")
         raise HTTPException(403, "Your role cannot create this draft")
     d = create_draft(db, p, case, body.type, body.language, user, use_llm=body.use_llm and settings.llm_provider != "none")
     if not lawyer:  # superintendent's application must never carry privileged strategy
@@ -310,23 +408,36 @@ def new_draft(pid: str, body: DraftCreate, user: User = Depends(current_user), d
 def _draft(d: Draft) -> dict:
     return {"id": d.id, "person_id": d.person_id, "case_id": d.case_id, "type": d.type, "language": d.language,
             "content": d.content, "grounding": d.grounding, "verifier_report": d.verifier_report, "status": d.status,
-            "versions": d.versions, "created_at": d.created_at.isoformat()}
+            "versions": d.versions, "created_at": _ts(d.created_at)}
+
+
+def _draft_visible(db: Session, user: User, person: Person, d: Draft) -> bool:
+    """The assigned lawyer (and admin) see every draft. Anyone else in scope (jail staff, DLSA) sees only
+    drafts that were NOT prepared by a lawyer and carry no privileged Defense-Insight grounding."""
+    if can_see_insights(user, person):
+        return True
+    author = db.get(User, d.created_by) if d.created_by else None
+    lawyer_work = author is not None and author.role in (Role.LAWYER, Role.SYSTEM_ADMIN)
+    privileged = any(src["type"] == "insight" for s in d.grounding for src in s["sources"])
+    return not lawyer_work and not privileged
 
 
 def _draft_access(db: Session, user: User, did: str) -> Draft:
     d = db.get(Draft, did)
     if d is None:
-        raise HTTPException(404, "Draft not found")
-    ensure_person_access(user, db.get(Person, d.person_id))
+        raise not_found()
+    p = ensure_person_access(user, db.get(Person, d.person_id), db, "draft", d.id)
+    if not _draft_visible(db, user, p, d):
+        audit(db, user, "denied", "draft", d.id, detail="privileged lawyer draft")
+        raise not_found()
     return d
 
 
 @router.get("/persons/{pid}/drafts")
 def list_drafts(pid: str, user: User = Depends(require(Perm.VIEW_PRISONER)), db: Session = Depends(get_db)) -> list[dict]:
-    p = ensure_person_access(user, db.get(Person, pid))
+    p = ensure_person_access(user, db.get(Person, pid), db, "draft")
     rows = db.scalars(select(Draft).where(Draft.person_id == p.id).order_by(Draft.created_at.desc())).all()
-    if not can_see_insights(user, p):
-        rows = [r for r in rows if not any(src["type"] == "insight" for s in r.grounding for src in s["sources"])]
+    rows = [r for r in rows if _draft_visible(db, user, p, r)]
     audit(db, user, "list", "draft", p.id)
     return [_draft(r) for r in rows]
 
@@ -342,19 +453,28 @@ def get_draft(did: str, user: User = Depends(current_user), db: Session = Depend
 def edit_draft(did: str, body: DraftPatch, user: User = Depends(require(Perm.EDIT_DRAFTS)), db: Session = Depends(get_db)) -> dict:
     d = _draft_access(db, user, did)
     if not can_see_insights(user, db.get(Person, d.person_id)):
+        audit(db, user, "denied", "draft", d.id, detail="edit")
         raise HTTPException(403, "Only the assigned lawyer can edit this draft")
-    if body.content is not None and body.content != d.content:
+    before = {"status": d.status}
+    edited = body.content is not None and body.content != d.content
+    if edited:
+        if not body.content.strip():
+            raise HTTPException(422, "A draft cannot be empty.")
         d.versions = d.versions + [{"at": datetime.now(timezone.utc).isoformat(), "by": user.id, "content": d.content}]
         d.content = body.content
         d.verifier_report = {**d.verifier_report, "lawyer_edited": True}
-    if body.status:
+        audit(db, user, "edit_draft", "draft", d.id, before=before, after={"status": d.status, "edited": True}, commit=False)
+    if body.status and body.status != d.status:
         d.status = body.status
-    audit(db, user, "edit_draft", "draft", d.id, after={"status": d.status, "edited": body.content is not None})
+        audit(db, user, {"approved": "approve_draft", "rejected": "reject_draft"}.get(body.status, "reopen_draft"), "draft",
+              d.id, before=before, after={"status": d.status}, commit=False)
+    db.commit()
     return _draft(d)
 
 
 @router.get("/drafts/{did}/export")
-def export_draft(did: str, format: str = "docx", user: User = Depends(current_user), db: Session = Depends(get_db)) -> Response:
+def export_draft(did: str, format: str = Query("docx", pattern="^(docx|pdf)$"), user: User = Depends(current_user),
+                 db: Session = Depends(get_db)) -> Response:
     d = _draft_access(db, user, did)
     paras = d.content.split("\n\n")
     title = d.verifier_report.get("title", d.type)
@@ -362,10 +482,10 @@ def export_draft(did: str, format: str = "docx", user: User = Depends(current_us
     audit(db, user, "export_draft", "draft", d.id, detail=format)
     if format == "pdf":
         return Response(to_pdf(title, paras, disc, d.language), media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="{d.type}_{d.language}.pdf"'})
+                        headers={"Content-Disposition": f'inline; filename="{d.type}_{d.language}.pdf"'})
     return Response(to_docx(title, paras, disc, d.language),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    headers={"Content-Disposition": f'attachment; filename="{d.type}_{d.language}.docx"'})
+                    headers={"Content-Disposition": f'inline; filename="{d.type}_{d.language}.docx"'})
 
 
 # ------------------------------------------------------------------ review queue
@@ -377,7 +497,7 @@ def review_queue(user: User = Depends(require(Perm.REVIEW_QUEUE)), db: Session =
     rows = db.scalars(q.limit(300)).all()
     audit(db, user, "list", "review_queue", None, detail=f"{len(rows)} items")
     return [{"id": r.id, "kind": r.kind, "ref_id": r.ref_id, "title": r.title, "payload": r.payload, "confidence": r.confidence,
-             "created_at": r.created_at.isoformat()} for r in rows]
+             "created_at": _ts(r.created_at)} for r in rows]
 
 
 @router.post("/review/{rid}/resolve")
@@ -385,32 +505,54 @@ def resolve_item(rid: str, body: ReviewResolve, user: User = Depends(require(Per
     item = db.get(ReviewItem, rid)
     if item is None or item.status != "open":
         raise HTTPException(404, "Review item not found or already resolved")
-    person = None
+    allowed = {"extraction": {"confirm", "correct", "reject"}, "delay_attribution": {"confirm", "set_attribution"},
+               "identity_match": {"link", "not_same"}, "new_prisoner": {"confirm", "reject"}}.get(item.kind, {"confirm", "reject"})
+    if body.action not in allowed:
+        raise HTTPException(422, f"Action '{body.action}' does not apply to a {item.kind.replace('_', ' ')} item")
+    if body.action == "set_attribution" and body.value not in {a.value for a in Attribution}:
+        raise HTTPException(422, "Attribution must be one of: " + ", ".join(a.value for a in Attribution))
+    if body.action == "correct" and (body.value is None or str(body.value).strip() == ""):
+        raise HTTPException(422, "A corrected value is required.")
+    persons: list[Person] = []
     if item.kind == "extraction" and body.action in ("confirm", "correct", "reject"):
         f = db.get(ExtractedFact, item.ref_id)
         if f:
             f.review_status = {"confirm": "confirmed", "correct": "corrected", "reject": "rejected"}[body.action]
             f.corrected_value = body.value if body.action == "correct" else f.corrected_value
             f.reviewer_id, f.confidence = user.id, 1.0 if body.action != "reject" else f.confidence
-            person = db.get(Person, f.person_id) if f.person_id else None
+            persons = [db.get(Person, f.person_id)] if f.person_id else []
     elif item.kind == "delay_attribution":
         h = db.get(Hearing, item.ref_id)
         if h:
+            before_attr = h.delay_attribution
             h.delay_attribution = body.value if body.action == "set_attribution" else item.payload.get("suggested", "unknown")
             h.reviewer_verified, h.attribution_confidence, h.attribution_method = True, 1.0, "reviewer"
+            audit(db, user, "set_delay_attribution", "hearing", h.id, before=before_attr, after=h.delay_attribution,
+                  commit=False)
             case = db.get(Case, h.case_id)
-            person = case.persons[0] if case and case.persons else None
+            persons = list(case.persons) if case else []  # every co-accused on the case is recomputed
+    elif item.kind == "new_prisoner":
+        p = db.get(Person, item.ref_id)
+        if p is not None:
+            state = "verified" if body.action == "confirm" else "returned"
+            p.identifiers = {**(p.identifiers or {}), "intake": state}
+            audit(db, user, "verify_intake" if state == "verified" else "return_intake", "person", p.id,
+                  after={"intake": state}, detail=body.note, commit=False)
     elif item.kind == "identity_match" and body.action in ("link", "not_same"):
         a, b = db.get(Person, item.payload["a"]), db.get(Person, item.payload["b"])
-        if body.action == "link" and a and b and not a.merged_into_id and not b.merged_into_id:
+        if body.action == "link":
+            if not (a and b) or a.merged_into_id or b.merged_into_id:
+                raise HTTPException(409, "One of these records was already merged; refresh the queue.")
             merge_persons(db, a, b, user, item.confidence)
-            person = a
+            persons = [a]
     item.status, item.resolved_by = "resolved", user.id
     item.resolution = {"action": body.action, "value": body.value, "note": body.note}
     audit(db, user, "review_resolve", item.kind, item.ref_id, after=item.resolution)
-    if person is not None:
-        out = compute_for_person(db, person)
-        alerts_for(db, person, out, settings.today(), reason="document")
+    for person in persons:
+        if person is None:
+            continue
+        out = compute_for_person(db, person, commit=False)
+        alerts_for(db, person, out, settings.today(), reason="review")
         refresh_insights(db, person)
     db.commit()
     return {"ok": True}
@@ -438,8 +580,12 @@ def scan_duplicates(user: User = Depends(require(Perm.MERGE_PERSONS)), db: Sessi
 def merge(body: MergeIn, user: User = Depends(require(Perm.MERGE_PERSONS)), db: Session = Depends(get_db)) -> dict:
     keep, other = db.get(Person, body.keep_id), db.get(Person, body.other_id)
     if keep is None or other is None:
-        raise HTTPException(404, "Person not found")
-    ev = merge_persons(db, keep, other, user, body.score or score_pair(person_record(keep), person_record(other), PairModel()).p)
+        raise not_found()
+    try:
+        ev = merge_persons(db, keep, other, user,
+                           body.score or score_pair(person_record(keep), person_record(other), PairModel()).p)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     compute_for_person(db, keep)
     return {"merge_event": ev.id}
 
@@ -448,8 +594,11 @@ def merge(body: MergeIn, user: User = Depends(require(Perm.MERGE_PERSONS)), db: 
 def do_unmerge(eid: str, user: User = Depends(require(Perm.MERGE_PERSONS)), db: Session = Depends(get_db)) -> dict:
     ev = db.get(MergeEvent, eid)
     if ev is None:
-        raise HTTPException(404, "Merge event not found")
-    other = unmerge(db, ev, user)
+        raise not_found()
+    try:
+        other = unmerge(db, ev, user)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     compute_for_person(db, other)
     compute_for_person(db, db.get(Person, ev.kept_person_id))
     return {"restored": other.id}
@@ -457,8 +606,10 @@ def do_unmerge(eid: str, user: User = Depends(require(Perm.MERGE_PERSONS)), db: 
 
 @router.get("/resolution/merges")
 def merges(user: User = Depends(require(Perm.MERGE_PERSONS)), db: Session = Depends(get_db)) -> list[dict]:
-    return [{"id": m.id, "kept": m.kept_person_id, "merged": m.merged_person_id, "score": m.score, "undone": m.undone,
-             "created_at": m.created_at.isoformat()} for m in db.scalars(select(MergeEvent).order_by(MergeEvent.created_at.desc()))]
+    names = {p.id: p.canonical_name for p in db.scalars(select(Person))}
+    return [{"id": m.id, "kept": m.kept_person_id, "merged": m.merged_person_id, "kept_name": names.get(m.kept_person_id),
+             "merged_name": names.get(m.merged_person_id), "score": m.score, "undone": m.undone,
+             "created_at": _ts(m.created_at)} for m in db.scalars(select(MergeEvent).order_by(MergeEvent.created_at.desc()))]
 
 
 # ------------------------------------------------------------------ alerts
@@ -471,16 +622,16 @@ def list_alerts(user: User = Depends(require(Perm.ACK_ALERTS)), db: Session = De
     rows = db.scalars(q).all()
     audit(db, user, "list", "alert", None, detail=f"{len(rows)} alerts")
     return [{"id": a.id, "person_id": a.person_id, "person": ids[a.person_id].canonical_name, "kind": a.kind,
-             "severity": a.severity, "message": a.message, "created_at": a.created_at.isoformat(), "escalated": a.escalated,
-             "acknowledged_at": _iso(a.acknowledged_at)} for a in rows]
+             "severity": a.severity, "message": a.message, "created_at": _ts(a.created_at), "escalated": a.escalated,
+             "acknowledged_at": _ts(a.acknowledged_at)} for a in rows]
 
 
 @router.post("/alerts/{aid}/ack")
 def ack(aid: str, user: User = Depends(require(Perm.ACK_ALERTS)), db: Session = Depends(get_db)) -> dict:
     a = db.get(Alert, aid)
     if a is None:
-        raise HTTPException(404, "Alert not found")
-    ensure_person_access(user, db.get(Person, a.person_id))
+        raise not_found()
+    ensure_person_access(user, db.get(Person, a.person_id), db, "alert", a.id)
     a.acknowledged_at, a.acknowledged_by = datetime.now(timezone.utc), user.id
     audit(db, user, "ack_alert", "alert", a.id)
     return {"ok": True}
@@ -494,8 +645,9 @@ def dlsa_dashboard(user: User = Depends(require(Perm.DISTRICT_DASHBOARD)), db: S
         persons = [p for p in persons if p.district == user.district]
     by_district: dict[str, dict[str, Any]] = {}
     lawyers: dict[str, int] = {}
+    kb = load_kb(db)
     for p in persons:
-        s = _summary(db, p)
+        s = _summary(db, p, kb=kb)
         d = by_district.setdefault(p.district or "Unknown", {"district": p.district, "prisoners": 0, "overdue": 0, "critical": 0,
                                                             "review": 0, "urgent_default_bail": 0, "detention_days": [],
                                                             "vulnerable": 0, "women": 0})
@@ -504,6 +656,7 @@ def dlsa_dashboard(user: User = Depends(require(Perm.DISTRICT_DASHBOARD)), db: S
         d["critical"] += int(s["urgency"].startswith("CRITICAL"))
         d["review"] += int(s["status"] in ("REVIEW", "REVIEW_MULTIPLE_CASES"))
         d["urgent_default_bail"] += int(s["urgency"] == "URGENT_DEFAULT_BAIL")
+        d["unassigned"] = d.get("unassigned", 0) + int(not p.assigned_lawyer_id)
         d["detention_days"].append(s["custody_days"])
         d["vulnerable"] += int(bool(p.vulnerability))
         d["women"] += int(p.gender == "female")
@@ -562,29 +715,79 @@ def verify_record(key: str, body: VerifyIn, user: User = Depends(require(Perm.MA
 # ------------------------------------------------------------------ admin
 @router.get("/admin/audit")
 def audit_log(user: User = Depends(require(Perm.VIEW_AUDIT)), db: Session = Depends(get_db), entity_id: str | None = None,
-              limit: int = 200) -> list[dict]:
-    q = select(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 1000))
+              action: str | None = None, user_id: str | None = None, entity_type: str | None = None,
+              after_id: int | None = Query(None, ge=0), limit: int = Query(200, ge=1, le=1000)) -> list[dict]:
+    """Newest first. `after_id` returns only entries newer than a known id (e.g. "this session")."""
+    q = select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)
     if entity_id:
         q = q.where(AuditLog.entity_id == entity_id)
-    return [{"id": a.id, "ts": a.ts.isoformat(), "user_id": a.user_id, "role": a.role, "action": a.action,
-             "entity_type": a.entity_type, "entity_id": a.entity_id, "detail": a.detail} for a in db.scalars(q)]
+    if action:
+        q = q.where(AuditLog.action == action)
+    if user_id:
+        q = q.where(AuditLog.user_id == user_id)
+    if entity_type:
+        q = q.where(AuditLog.entity_type == entity_type)
+    if after_id is not None:
+        q = q.where(AuditLog.id > after_id)
+    rows = list(db.scalars(q))
+    people = {u.id: u for u in db.scalars(select(User).where(User.id.in_({a.user_id for a in rows if a.user_id})))}
+    # reading the audit log is itself audited, but AFTER the query so the entry does not pollute this page
+    audit(db, user, "view", "audit_log", None, detail=f"{len(rows)} entries")
+    return [{"id": a.id, "ts": _ts(a.ts), "user_id": a.user_id, "user_name": people[a.user_id].name if a.user_id in people else None,
+             "user_email": people[a.user_id].email if a.user_id in people else None, "role": a.role, "action": a.action,
+             "entity_type": a.entity_type, "entity_id": a.entity_id, "detail": a.detail, "before": a.before, "after": a.after,
+             "outcome": "denied" if a.action in ("denied", "access_denied", "login_failed") else "ok"} for a in rows]
 
 
 @router.get("/admin/users")
 def users(user: User = Depends(require(Perm.MANAGE_USERS)), db: Session = Depends(get_db)) -> list[dict]:
-    return [_user(u) for u in db.scalars(select(User))]
+    return [_user(u) | {"active": u.active} for u in db.scalars(select(User))]
 
 
 @router.post("/admin/users")
 def create_user(body: UserCreate, user: User = Depends(require(Perm.MANAGE_USERS)), db: Session = Depends(get_db)) -> dict:
+    if "@" not in body.email or not body.name.strip():
+        raise HTTPException(422, "A valid email and name are required")
+    if body.role == Role.JAIL_STAFF and not (body.jail or "").strip():
+        raise HTTPException(422, "Jail staff accounts need a jail")
+    if body.role == Role.DLSA_ADMIN and not (body.district or "").strip():
+        raise HTTPException(422, "DLSA accounts need a district")
     if db.scalar(select(User).where(User.email == body.email.lower())):
         raise HTTPException(409, "A user with this email exists")
     u = User(email=body.email.lower(), name=body.name, role=body.role, jail=body.jail, district=body.district,
-             hashed_password=hash_password(body.password))
+             hashed_password=hash_password(body.password), approved_at=datetime.now(timezone.utc), created_by=user.id)
     db.add(u)
     db.flush()
     audit(db, user, "create_user", "user", u.id, after={"email": u.email, "role": u.role})
     return _user(u)
+
+
+@router.patch("/admin/users/{uid}")
+def update_user(uid: str, body: UserPatch, user: User = Depends(require(Perm.MANAGE_USERS)), db: Session = Depends(get_db)) -> dict:
+    u = db.get(User, uid)
+    if u is None:
+        raise not_found()
+    if u.id == user.id and (body.active is False or (body.role and body.role != u.role)):
+        raise HTTPException(409, "You cannot deactivate your own account or change your own role")
+    from app.services import accounts
+    if body.active is False and u.active:
+        accounts.deactivate(db, user, u, reason="deactivated by admin")
+    elif body.active is True and not u.active:
+        accounts.activate(db, user, u)
+    before = {"role": u.role, "jail": u.jail, "district": u.district}
+    if body.role and body.role != u.role and u.role == Role.LAWYER:
+        for p in db.scalars(select(Person).where(Person.assigned_lawyer_id == u.id)):  # a non-lawyer keeps no assignments
+            p.assigned_lawyer_id = None
+            audit(db, user, "unassign_lawyer", "person", p.id, before=u.id, after=None, detail="role changed", commit=False)
+    for k in ("role", "jail", "district"):
+        v = getattr(body, k)
+        if v is not None:
+            setattr(u, k, v)
+    after = {"role": u.role, "jail": u.jail, "district": u.district}
+    if after != before:
+        audit(db, user, "change_role" if before["role"] != u.role else "update_user", "user", u.id, before=before, after=after)
+    db.commit()
+    return _user(u) | {"active": u.active}
 
 
 @router.post("/admin/run-nightly")

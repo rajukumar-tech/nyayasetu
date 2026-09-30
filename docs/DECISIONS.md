@@ -73,3 +73,71 @@ cookies + CSRF protection and short-lived tokens (see PRIVACY.md).
 **D-017 · Delay model** is a fixed-horizon (pending > 3 years) LightGBM classifier plus a Cox model for C-index;
 censored-before-horizon cases are excluded from the classifier. Trained on a synthetic stand-in until the DDL files
 are downloaded (licence: CC BY-NC-SA, non-commercial).
+
+## Audit round (Oct 2026)
+
+**D-018 · Roles do their own work only.** The system admin adds prisoners, manages accounts and lawyers, assigns
+lawyers, keeps the legal data and reads the audit log — it sees a *register* (name, jail, status, review state,
+lawyer) but never case details, documents, Defense Insights or drafts. Only the assigned lawyer sees Defense Insights
+and uploads documents. Jail staff record custody (new prisoner, transfer, release, case outcome); the DLSA assigns
+within its district; the reviewer checks.
+
+**D-019 · Intake review before assignment.** Every new prisoner (added by the admin or jail staff) goes to the review
+queue as `new_prisoner`; a lawyer can be assigned only after the reviewer verifies the entered details. A returned
+record cannot be assigned. Seeded demo prisoners count as verified.
+
+**D-020 · One "not found" for out-of-scope and missing records.** An ID outside the caller's scope returns exactly the
+same 404 body as an ID that does not exist (prisoners, documents, drafts, facts, insights, alerts), so IDs cannot be
+probed; the attempt is audit-logged as `access_denied`. Role-level refusals (e.g. a reviewer calling a prisoner
+endpoint) stay 403 because they reveal nothing about a record.
+
+**D-021 · Eligibility date walks the real custody days.** The date the threshold (or maximum) was reached is the
+N-th counted custody day — correct across bail periods, gaps and accused-caused adjournments. `days_overdue` stays the
+number of counted days beyond the threshold. Accused-delay days are a set, so duplicate or overlapping adjournment
+records can never subtract a day twice.
+
+**D-022 · Default bail distinguishes the facts instead of "charge sheet filed = lost".** REVIEW when the application
+and the late charge sheet share a date, when an application came before the right accrued, when the charge sheet
+predates the first remand, when the remand date is missing during investigation, and when a maximum of exactly
+10 years makes the 60- vs 90-day period decide the answer. A late charge sheet with no application *on record* says
+the right may survive if an application was made.
+
+**D-023 · Documents never decide by filename.** The type comes from the text; the real format from the file's bytes
+(an extension that disagrees is flagged). A document whose content does not carry the fields its type needs, that
+names another person, or that cites another case's FIR/CNR is held for review and its facts are capped below the
+confidence threshold. Document facts never change a calculation directly: a usable fact that contradicts a date the
+calculation depends on routes the case to REVIEW (`DOCUMENT_RECORD_CONFLICT`); a rejected fact is ignored.
+
+**D-024 · Results are never stale.** A stored result carries the date it is valid for (`as_of`) and its legal-data
+version; list and detail views recompute first when either is out of date. Alerts whose condition no longer holds are
+closed automatically (and reopen if it returns).
+
+**D-025 · Sessions.** Logout revokes the token (JWT id stored in `revoked_tokens`); a deactivated account's tokens stop
+working on the next request; five failed sign-ins in 15 minutes lock the account for 15 minutes; all are audited.
+
+**D-026 · Localization.** Every UI string exists in English, Kannada and Hindi (`frontend/src/lib/i18n/*.ts`, enforced by
+TypeScript and `npm run check:i18n`). The rule engine's step-by-step trace and the recorded detail of flags and
+documents are kept exactly as recorded (English) and labelled so; everything the user acts on — statuses, the
+calculation, flags, findings, alerts, buttons — is localized.
+
+**D-027 · Typed-in data is not evidence.** A prisoner added through the form has a custody start, first remand and
+charges that nobody has proved yet. Until a document supports each of them — the FIR or charge sheet for the charges,
+the arrest memo / remand order / jail admission record for custody — the case is REVIEW (`UNVERIFIED_MANUAL_ENTRY`)
+and the numbers are shown only as provisional. Support means the document's own day-first reading equals the typed
+value; facts from documents held as unverified (another person, another case, content not matching its type) never
+count, and rejected facts are ignored.
+
+**D-028 · The same prisoner cannot be added twice.** "Add prisoner" is refused (409) when the CNR matches an existing
+case (any spacing/case), when the FIR number matches at the same police station, or when the name AND father's name
+(spelling-tolerant: capitals, joined words, Gowda/Gouda) AND date of birth all match. A look-alike — same name with a
+different father, or without a date of birth to compare — is allowed and goes to the reviewer as an identity match,
+because different people share names. The admin is told which record matched; jail staff of another jail are only
+told that one exists. Blocked attempts are audit-logged (`duplicate_blocked`).
+
+**D-029 · No browser pop-ups; downloads that always work.** `window.prompt/confirm` are blocked in many browsers and
+embedded views (it broke *Reset password*), so every question — reset password, correct a fact, verify legal data,
+return an intake, deactivate an account — uses the app's own translated dialog (`components/Dialog.tsx`) with input
+checks. Draft exports are sent `inline` and saved by the page (a fetched `attachment` response is diverted by Chrome's
+download handling and never reaches the page). An admin password reset ends every session opened before it
+(`password_changed_at`). `e2e/buttons.spec.ts` presses the buttons on every screen for every role and fails on any
+uncaught page error.

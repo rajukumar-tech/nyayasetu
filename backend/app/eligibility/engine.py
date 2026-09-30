@@ -19,7 +19,7 @@ from app.domain import (
 from app.legal_kb.kb import Derivation, KnowledgeBase, Term
 from app.timeline.reconstruct import Timeline, inclusive_days, reconstruct
 
-RULE_VERSION = "eligibility-engine/1.0.0"
+RULE_VERSION = "eligibility-engine/1.1.0"  # 1.1: audit fixes (see docs/DECISIONS.md D-020 … D-027)
 DISCLAIMER = ("Decision support for a qualified lawyer. Not legal advice. 'Eligible' means eligible to apply: "
               "the court may, after hearing the Public Prosecutor and recording reasons, order continued detention. "
               "Verify all sections and citations.")
@@ -187,12 +187,41 @@ def _prior_conviction_analysis(person: Person, case: Case, kb: KnowledgeBase, tr
     return first
 
 
+def _custody_day_set(tl: Timeline) -> set[date]:
+    return {i.start + timedelta(days=k) for i in tl.intervals for k in range(i.days)}
+
+
+@dataclass
+class DelayCount:
+    accused: set[date]
+    uncertain: set[date]  # custody days inside adjournments with unknown/shared attribution (never subtracted, D-008)
+
+
 def _accused_delay_days(case: Case, tl: Timeline, ctx: ComputeContext, trace: _Trace,
-                        flags: list[Flag], needs: list[str]) -> int:
-    """Days of custody that fall inside adjournments attributed to the accused."""
-    accused_days = 0
+                        flags: list[Flag], needs: list[str]) -> DelayCount:
+    """Custody days that fall inside adjournments attributed to the accused.
+
+    Days are collected as a SET, so duplicate or overlapping adjournment records can never subtract the
+    same custody day twice (and the result can never exceed the custody days)."""
+    custody = _custody_day_set(tl)
+    accused: set[date] = set()
+    uncertain: set[date] = set()
     unknown = 0
-    for h in sorted(case.hearings, key=lambda h: h.date):
+    by_date: dict[date, set[str]] = {}
+    seen: set[tuple] = set()
+    for h in sorted(case.hearings, key=lambda h: (h.date, h.next_date or date.max)):
+        key = (h.date, h.next_date, h.attribution)
+        if key in seen:
+            flags.append(Flag("DUPLICATE_HEARING", f"Hearing of {h.date.isoformat()} is recorded more than once — counted once.", "info"))
+            continue
+        seen.add(key)
+        by_date.setdefault(h.date, set()).add(h.attribution.value)
+        if h.next_date is not None and h.next_date <= h.date:
+            flags.append(Flag("HEARING_DATES_INVALID", f"Hearing of {h.date.isoformat()} has a next date "
+                              f"{h.next_date.isoformat()} that is not after it — ignored for delay; check the order sheet."))
+            if h.attribution == Attribution.ACCUSED:
+                needs.append(f"Hearing {h.date.isoformat()}: next date {h.next_date.isoformat()} is not after the hearing date")
+            continue
         if h.attribution == Attribution.ACCUSED:
             if h.next_date is None:
                 flags.append(Flag("ACCUSED_DELAY_NO_NEXT_DATE",
@@ -201,18 +230,47 @@ def _accused_delay_days(case: Case, tl: Timeline, ctx: ComputeContext, trace: _T
             if not h.reviewer_verified and h.attribution_confidence < ctx.confidence_threshold:
                 needs.append(f"Delay attribution for hearing {h.date.isoformat()} ('{h.reason_text[:60]}', "
                              f"confidence {h.attribution_confidence:.2f})")
-            period_end = h.next_date - timedelta(days=1)
-            overlap = sum(inclusive_days(max(i.start, h.date), min(i.end, period_end)) for i in tl.intervals)
-            accused_days += overlap
+            period = {h.date + timedelta(days=k) for k in range((h.next_date - h.date).days)} & custody
+            new = period - accused
+            accused |= period
+            already = len(period) - len(new)
             trace.add("section_479.accused_delay",
                       f"Hearing {h.date.isoformat()} adjourned to {h.next_date.isoformat()} at the instance of the accused "
-                      f"('{h.reason_text[:60]}') → {overlap} custody day(s) excluded.")
+                      f"('{h.reason_text[:60]}') → {len(new)} custody day(s) excluded"
+                      + (f" ({already} already excluded by an overlapping adjournment)." if already else "."))
         elif h.attribution in (Attribution.UNKNOWN, Attribution.BOTH):
             unknown += 1
+            if h.next_date is not None:
+                uncertain |= {h.date + timedelta(days=k) for k in range((h.next_date - h.date).days)} & custody
+    for d, labels in sorted(by_date.items()):
+        definite = labels - {Attribution.UNKNOWN.value}
+        if len(definite) > 1:
+            flags.append(Flag("HEARING_ATTRIBUTION_CONFLICT", f"Records for the hearing of {d.isoformat()} disagree on who "
+                              f"caused the adjournment ({', '.join(sorted(definite))})."))
+            if Attribution.ACCUSED.value in definite:
+                needs.append(f"Conflicting delay attribution for the hearing of {d.isoformat()}")
     if unknown:
         flags.append(Flag("DELAY_ATTRIBUTION_UNCERTAIN",
                           f"{unknown} adjournment(s) have unknown or shared attribution — NOT subtracted; review to confirm.", "info"))
-    return accused_days
+    return DelayCount(accused, uncertain - accused)
+
+
+def _date_count_reached(tl: Timeline, excluded: set[date], target: int) -> date | None:
+    """The calendar day on which counted detention (custody days minus `excluded`) reached `target`,
+    walking the actual custody intervals — correct even when there are bail periods, gaps or accused-caused
+    adjournments between that day and today. None if not reached."""
+    if target <= 0:
+        return tl.intervals[0].start if tl.intervals else None
+    n = 0
+    for i in sorted(tl.intervals, key=lambda i: i.start):
+        for k in range(i.days):
+            d = i.start + timedelta(days=k)
+            if d in excluded:
+                continue
+            n += 1
+            if n == target:
+                return d
+    return None
 
 
 # ---------------------------------------------------------------- per-case evaluation
@@ -238,6 +296,13 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
     res.custody_days = tl.custody_days
     flags += [Flag(f.code, f.message, f.severity) for f in tl.flags]
     needs += tl.low_confidence
+    for msg in case.record_conflicts:
+        # typed-in data without a supporting document vs a document that contradicts the record
+        code = "UNVERIFIED_MANUAL_ENTRY" if msg.startswith("Entered by hand") else "DOCUMENT_RECORD_CONFLICT"
+        flags.append(Flag(code, msg))
+        needs.append(msg)
+    for msg in case.record_notes:
+        flags.append(Flag("DOCUMENT_RECORD_NOTE", msg, "info"))
     if not r479.verified:
         needs.append(f"Legal rule 'section_479' ({r479.ref}) is unverified")
 
@@ -264,8 +329,17 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
         return _finish(res, Status.NOT_APPLICABLE, trace, flags, needs)
     if not tl.in_custody_today:
         trace.add("step1.custody", "Not in custody in this case today — Section 479 not applicable.")
+        if tl.low_confidence or case.record_conflicts:  # e.g. only a future-dated or reversed custody record
+            return _finish(res, Status.NOT_APPLICABLE, trace, flags, needs, gate=True)
         return _finish(res, Status.NOT_APPLICABLE, trace, flags, needs)
     trace.add("step1.status", f"Case is pending ({status.value}) and the person is in custody → undertrial.", r479.ref)
+
+    # ---- Delay & counted detention (independent of the charges)
+    delay = _accused_delay_days(case, tl, ctx, trace, flags, needs)
+    res.accused_days = len(delay.accused)
+    res.counted_days = max(0, tl.custody_days - res.accused_days)
+    trace.add("section_479.counting", f"Custody {tl.custody_days} day(s) (inclusive counting) − accused-caused delay "
+              f"{res.accused_days} day(s) = counted detention {res.counted_days} day(s).", r479.ref)
 
     # ---- Charges → effective maxima
     active = case.active_charges(today)
@@ -273,25 +347,39 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
         if c not in active:
             trace.add("charges", f"{c.label} dropped on {c.dropped_on.isoformat()} — ignored.")
     derivs: list[tuple[Charge, Derivation]] = []
+    unknown_law: list[str] = []
     for ch in active:
         d = kb.effective_max(ch)
         if "LIABILITY_RULE_ONLY" in d.flags:
             trace.add("charges", f"{ch.label} is a liability provision, not a separate offence — no separate maximum.",
                       d.record.key if d.record else "")
             continue
-        derivs.append((ch, d))
         if ch.confidence < ctx.confidence_threshold:
             needs.append(f"Charge {ch.label} (confidence {ch.confidence:.2f})")
+        if d.record is None and "NO_RECORD" in d.flags:
+            # an unknown section has NO known maximum — it must never be treated as "fine only"
+            unknown_law.append(ch.label)
+            needs.append(f"Legal data for {ch.label}: {', '.join(d.flags)}")
+            flags.append(Flag("MISSING_LEGAL_DATA", f"No legal-data record for {ch.label} — the maximum cannot be "
+                              "established; review."))
+            trace.add("charges", f"{ch.label}: no legal-data record — maximum unknown.")
+            continue
+        derivs.append((ch, d))
         for code in d.flags:
             if code in ("NO_RECORD", "UNKNOWN_SECTION", "MAPPING_AMBIGUOUS_OR_MISSING"):
                 needs.append(f"Legal data for {ch.label}: {code}")
+                flags.append(Flag("MISSING_LEGAL_DATA", f"No verified legal-data record for {ch.label} ({code}) — the "
+                                  "maximum cannot be established; review."))
             else:  # IPC_BNS_TRANSITION_MISMATCH | OFFENCE_DATE_UNKNOWN | UNVERIFIED_MAPPING
                 flags.append(Flag(code, f"{ch.label}: " + " ".join(d.steps[:3])))
         needs += [f"Legal data record {u} is unverified" for u in d.unverified]
     if not derivs:
-        trace.add("charges", "No offence charges on record.")
-        flags.append(Flag("NO_CHARGES", "No charges recorded — cannot evaluate."))
-        needs.append("Charges for this case")
+        if unknown_law:
+            trace.add("charges", "No charge with known legal data — cannot evaluate.")
+        else:
+            trace.add("charges", "No offence charges on record.")
+            flags.append(Flag("NO_CHARGES", "No charges recorded — cannot evaluate."))
+            needs.append("Charges for this case")
         _add_findings(res, person, case, tl, None, kb, ctx, trace, flags, needs)
         return _finish(res, Status.REVIEW, trace, flags, needs)
 
@@ -303,12 +391,6 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
         flags.append(Flag("LEGACY_OFFENCE_479_APPLIED",
                           "Offence pre-dates BNS: IPC punishment used; Section 479 BNSS thresholds applied to this pending case.", "info"))
 
-    # ---- Delay & counted detention
-    res.accused_days = _accused_delay_days(case, tl, ctx, trace, flags, needs)
-    res.counted_days = tl.custody_days - res.accused_days
-    trace.add("section_479.counting", f"Custody {tl.custody_days} day(s) (inclusive counting) − accused-caused delay "
-              f"{res.accused_days} day(s) = counted detention {res.counted_days} day(s).", r479.ref)
-
     # ---- First-time offender → fraction
     first = _prior_conviction_analysis(person, case, kb, trace, flags)
     frac: Fraction = r479.fraction("first_offender_fraction" if first else "general_fraction")
@@ -316,11 +398,14 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
     res.fraction = f"{frac.numerator}/{frac.denominator}"
 
     def calc(term: Term) -> tuple[int | None, int | None, date | None]:
+        """(max days, threshold days, date the threshold was reached — or the projected date if not yet)."""
         if term.kind != "term":
             return None, None, None
         max_days = math.ceil(term.days)
         thr = math.ceil(term.days * frac)
-        return max_days, thr, today - timedelta(days=res.counted_days - thr)
+        if res.counted_days >= thr:
+            return max_days, thr, _date_count_reached(tl, delay.accused, thr)
+        return max_days, thr, today + timedelta(days=thr - res.counted_days)
 
     for ch, d in derivs:
         md, thr, ef = calc(d.term)
@@ -351,10 +436,11 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
         return _finish(res, Status.REVIEW, trace, flags, needs)
 
     # ---- Step 3: absolute ceiling
+    _uncertain_delay_check(res, delay, tl, flags)
     if res.counted_days >= res.max_days:
         trace.add("step3.ceiling", f"Counted detention {res.counted_days} ≥ maximum {res.max_days} day(s) ({most.term}) "
                   "→ no undertrial may be detained beyond the maximum. Applies even with multiple cases.", r479.ref)
-        res.eligible_from_date = today - timedelta(days=res.counted_days - res.max_days)
+        res.eligible_from_date = _date_count_reached(tl, delay.accused, res.max_days)
         res.days_overdue = res.counted_days - res.max_days
         if special:
             flags.append(Flag("SPECIAL_LAW", f"Special-law charge(s) {', '.join(special)} — confirm the ceiling with the lawyer."))
@@ -371,7 +457,7 @@ def evaluate_case(person: Person, case: Case, kb: KnowledgeBase, ctx: ComputeCon
         "summary": (f"Case-wise reading: threshold {res.threshold_days} day(s) on the most serious offence "
                     f"({most_serious_ch.label}); counted {res.counted_days}."),
         "status": Status.ELIGIBLE.value if eligible_now else Status.NOT_YET.value,
-        "eligible_from": ef.isoformat() if eligible_now else None,
+        "eligible_from": ef.isoformat() if eligible_now and ef else None,
         "projected_date": None if eligible_now else (today + timedelta(days=res.threshold_days - res.counted_days)).isoformat(),
     }
     bar = {
@@ -437,11 +523,29 @@ def _as_pending(case: Case) -> Case:
 
 
 def _set_dates(res: CaseResult, today: date, eligible_now: bool, ef: date | None) -> None:
+    """eligible_from_date = the calendar day counted detention reached the threshold (never after today);
+    days_overdue = counted days beyond the threshold (equals the calendar days since then only when custody
+    was continuous and nothing was excluded in between)."""
     if eligible_now:
         res.eligible_from_date = ef
         res.days_overdue = res.counted_days - res.threshold_days
     else:
         res.projected_date = today + timedelta(days=res.threshold_days - res.counted_days)
+
+
+def _uncertain_delay_check(res: CaseResult, delay: DelayCount, tl: Timeline, flags: list[Flag]) -> None:
+    """D-008: unknown/shared adjournments are never subtracted. But if they WERE the accused's and that would
+    change the outcome, say so plainly so the lawyer knows the attribution matters before relying on it."""
+    if not delay.uncertain or res.threshold_days is None or res.max_days is None:
+        return
+    alt = max(0, res.counted_days - len(delay.uncertain))
+    for limit, what in ((res.max_days, "the maximum"), (res.threshold_days, "the Section 479 threshold")):
+        if res.counted_days >= limit > alt:
+            flags.append(Flag("DELAY_ATTRIBUTION_AFFECTS_RESULT",
+                              f"{len(delay.uncertain)} custody day(s) fall in adjournments with unknown or shared attribution. "
+                              f"They are not subtracted (D-008); if they were found to be the accused's, counted detention "
+                              f"would be {alt} day(s) — below {what} ({limit}). Confirm the attribution in the review queue."))
+            return
 
 
 def _add_findings(res: CaseResult, person: Person, case: Case, tl: Timeline, most: Derivation | None,
@@ -451,6 +555,10 @@ def _add_findings(res: CaseResult, person: Person, case: Case, tl: Timeline, mos
     db = kb.rule("default_bail")
     if case.first_remand_date is None:
         trace.add("default_bail", "First remand date unknown — default-bail window cannot be computed.", db.ref)
+        if case.charge_sheet_date is None and case.status == CaseStatus.INVESTIGATION:
+            res.findings.append(Finding("DEFAULT_BAIL_REVIEW", "No first-remand date on record and no charge sheet — the "
+                                        "default-bail window cannot be computed. Obtain the remand order.", "warning", None,
+                                        [db.ref]))
     elif most is None:
         trace.add("default_bail", "No charge data — default-bail period cannot be determined.", db.ref)
     else:
@@ -465,32 +573,63 @@ def _add_findings(res: CaseResult, person: Person, case: Case, tl: Timeline, mos
             needs.append(f"Legal rule 'default_bail' ({db.ref}) is unverified")
         base = (f"Default-bail period {period} days from first remand {case.first_remand_date.isoformat()} "
                 f"→ right accrues on {accrual.isoformat()} if no charge sheet by then.")
-        if case.charge_sheet_date is None:
+        app_d, cs = case.default_bail_application_date, case.charge_sheet_date
+        # A maximum of exactly ten years sits on the 60/90-day boundary ("not less than ten years"): if the two
+        # readings lead to different answers today, do not pick one — send it to review.
+        boundary = (not most.term.is_death_or_life and most.term.kind == "term" and most.term.months == 120
+                    and not (most.record and most.record.min_imprisonment and most.record.min_imprisonment.kind == "term"
+                             and most.record.min_imprisonment.months >= 120))
+        alt_accrual = case.first_remand_date + timedelta(days=int(db["short_period_days"])) if boundary else None
+        if cs is not None and cs < case.first_remand_date:
+            res.findings.append(Finding("DEFAULT_BAIL_REVIEW", base + f" The recorded charge-sheet date {cs.isoformat()} is "
+                                        "before the first remand — the dates cannot both be right; verify.", "warning",
+                                        None, [db.ref]))
+            trace.add("default_bail", base + " Charge sheet recorded before first remand → review.", db.ref)
+        elif boundary and alt_accrual != accrual and (
+                (cs is None and alt_accrual <= today < accrual) or (cs is not None and alt_accrual <= cs < accrual)):
+            res.findings.append(Finding("DEFAULT_BAIL_REVIEW", base + f" The maximum is exactly 10 years: under a 60-day "
+                                        f"reading the right would have accrued on {alt_accrual.isoformat()}. Which period applies "
+                                        "must be verified before relying on either.", "warning", alt_accrual, [db.ref]))
+            trace.add("default_bail", base + " 60/90-day period uncertain for a 10-year maximum → review.", db.ref)
+        elif cs is None:
             if today >= accrual:
-                if case.default_bail_application_date and case.default_bail_application_date >= accrual:
+                if app_d and app_d >= accrual:
                     res.findings.append(Finding("DEFAULT_BAIL_RIGHT_ASSERTED", base + f" Application filed "
-                                                f"{case.default_bail_application_date.isoformat()} — press for release.",
+                                                f"{app_d.isoformat()} and no charge sheet on record — press for release.",
                                                 "critical", accrual, [db.ref]))
                 else:  # findings only run for persons in custody
+                    early = (f" (An application dated {app_d.isoformat()} was filed before the right accrued — file afresh.)"
+                             if app_d else "")
                     res.findings.append(Finding(Status.URGENT_DEFAULT_BAIL.value, base + " No charge sheet on record — "
-                                                "apply for default bail BEFORE the charge sheet is filed.", "critical",
+                                                "apply for default bail BEFORE the charge sheet is filed." + early, "critical",
                                                 accrual, [db.ref]))
             elif (accrual - today).days <= int(db["warn_days_before_deadline"]):
                 res.findings.append(Finding("DEFAULT_BAIL_WINDOW_SOON", base + f" {(accrual - today).days} day(s) left.",
                                             "warning", accrual, [db.ref]))
             trace.add("default_bail", base, db.ref)
-        elif case.charge_sheet_date < accrual:
-            trace.add("default_bail", base + f" Charge sheet filed {case.charge_sheet_date.isoformat()} — within time.", db.ref)
-        elif case.default_bail_application_date and accrual <= case.default_bail_application_date < case.charge_sheet_date:
-            res.findings.append(Finding("DEFAULT_BAIL_RIGHT_ASSERTED", base + f" Applied {case.default_bail_application_date.isoformat()}"
-                                        f" before the late charge sheet ({case.charge_sheet_date.isoformat()}) — right was "
+        elif cs < accrual:
+            trace.add("default_bail", base + f" Charge sheet filed {cs.isoformat()} — within time; no default-bail right.", db.ref)
+        elif app_d and accrual <= app_d < cs:
+            res.findings.append(Finding("DEFAULT_BAIL_RIGHT_ASSERTED", base + f" Applied {app_d.isoformat()}"
+                                        f" before the late charge sheet ({cs.isoformat()}) — right was "
                                         "availed and survives.", "critical", accrual, [db.ref]))
             trace.add("default_bail", base + " Right asserted before charge sheet.", db.ref)
+        elif app_d and app_d == cs:
+            res.findings.append(Finding("DEFAULT_BAIL_REVIEW", base + f" The application and the late charge sheet are both "
+                                        f"dated {cs.isoformat()} — which came first decides whether the right survives; "
+                                        "check the court record.", "warning", accrual, [db.ref]))
+            trace.add("default_bail", base + " Application and charge sheet on the same day → review.", db.ref)
+        elif app_d and app_d < accrual:
+            res.findings.append(Finding("DEFAULT_BAIL_REVIEW", base + f" An application dated {app_d.isoformat()} was filed "
+                                        f"before the right accrued, and the charge sheet came late ({cs.isoformat()}). "
+                                        "Whether the right was availed needs review.", "warning", accrual, [db.ref]))
+            trace.add("default_bail", base + " Premature application, late charge sheet → review.", db.ref)
         else:
             res.findings.append(Finding("DEFAULT_BAIL_RIGHT_LOST", base + f" Charge sheet filed late "
-                                        f"({case.charge_sheet_date.isoformat()}) but no application was made before it — "
-                                        "the indefeasible right was not availed and is lost.", "info", accrual, [db.ref]))
-            trace.add("default_bail", base + " Right lost (not availed before the late charge sheet).", db.ref)
+                                        f"({cs.isoformat()}) and no default-bail application is on record before it — if none "
+                                        "was made, the right was not availed and is lost. If an application was made (check the "
+                                        "order sheet), record it: the right may survive.", "info", accrual, [db.ref]))
+            trace.add("default_bail", base + " No application on record before the late charge sheet.", db.ref)
 
     # ---- bail granted but not released
     if case.bail_granted_date:

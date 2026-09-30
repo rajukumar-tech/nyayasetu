@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, type Fact } from "@/lib/api";
-import { useI18n } from "@/lib/i18n";
+import { apiErrorText, useI18n } from "@/lib/i18n";
+import { useDialog } from "./Dialog";
 import { ErrorBox, Loading } from "./ui";
 
 interface Doc {
@@ -17,17 +18,18 @@ function show(v: unknown): string {
   return String(v);
 }
 
-/** Document text with every extracted fact highlighted at its source span. */
+/** Document text with every extracted fact highlighted at its source span. Document text itself is data (not translated). */
 export function DocumentViewer({ docId, focus, canCorrect, onChanged }: {
   docId: string; focus?: { start: number; end: number } | null; canCorrect: boolean; onChanged?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, tk } = useI18n();
+  const dialog = useDialog();
   const [doc, setDoc] = useState<Doc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clicked, setActive] = useState<string | null>(null);
   const activeRef = useRef<HTMLElement | null>(null);
 
-  const load = () => api<Doc>(`/api/documents/${docId}`).then(setDoc).catch((e) => setError(e.message));
+  const load = () => api<Doc>(`/api/documents/${docId}`).then(setDoc).catch((e) => setError(apiErrorText(t, e)));
   useEffect(() => { load(); }, [docId]); // eslint-disable-line react-hooks/exhaustive-deps
   const focusId = doc && focus ? (doc.facts.find((x) => x.span_start === focus.start)?.id ?? "__focus") : null;
   const active = clicked ?? focusId;
@@ -58,44 +60,46 @@ export function DocumentViewer({ docId, focus, canCorrect, onChanged }: {
   async function review(f: Fact, action: "confirm" | "correct" | "reject") {
     let value: unknown = undefined;
     if (action === "correct") {
-      const v = window.prompt(`Correct value for ${f.field}`, show(f.value));
-      if (v == null) return;
+      const v = await dialog.ask({ title: t("correct"), label: t("correctPrompt", { field: tk("field_", f.field) }),
+        initial: show(f.value), confirmText: t("save") });
+      if (v == null || !v.trim()) return;
       value = v;
     }
     try {
       await api(`/api/facts/${f.id}`, { method: "PATCH", body: JSON.stringify({ action, value }) });
       await load();
       onChanged?.();
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) { setError(apiErrorText(t, e)); }
   }
 
   return (
     <div className="grid lg:grid-cols-5 gap-4">
-      <div className="lg:col-span-3">
+      <div className="lg:col-span-3 min-w-0">
         <div className="flex flex-wrap gap-2 text-xs text-muted mb-2">
-          <span className="font-semibold text-ink">{doc.filename}</span>
-          <span>type: {doc.doc_type} ({Math.round(doc.doc_type_confidence * 100)}%)</span>
-          <span>language: {doc.language}</span>
-          {doc.warnings.map((w) => <span key={w} className="text-critical font-semibold">{w}</span>)}
+          <span className="font-semibold text-ink break-all">{doc.filename}</span>
+          <span>{t("docTypeLabel", { type: tk("docType_", doc.doc_type), pct: Math.round(doc.doc_type_confidence * 100) })}</span>
+          <span>{t("docLanguageLabel", { lang: doc.language })}</span>
+          {doc.warnings.map((w) => <span key={w} className="text-critical font-semibold">{tk("warn_", w)}</span>)}
         </div>
         <pre className="card p-3 whitespace-pre-wrap text-sm leading-relaxed max-h-[32rem] overflow-auto font-sans">{parts}</pre>
       </div>
-      <div className="lg:col-span-2">
-        <p className="label mb-2">Extracted facts ({doc.facts.length})</p>
+      <div className="lg:col-span-2 min-w-0">
+        <p className="label mb-2">{t("extractedFacts", { n: doc.facts.length })}</p>
         <ul className="space-y-2 max-h-[32rem] overflow-auto pr-1">
           {doc.facts.map((f) => (
             <li key={f.id} className={`card p-2 text-sm ${active === f.id ? "ring-2 ring-accent" : ""}`}>
               <button className="text-left w-full" onClick={() => setActive(f.id)}>
-                <span className="font-semibold">{f.field}</span>: {show(f.value)}
+                <span className="font-semibold">{tk("field_", f.field)}</span>: {show(f.value)}
               </button>
               <div className="text-xs text-muted flex flex-wrap gap-x-2">
-                <span>{f.method}</span>
+                <span>{tk("method_", f.method, f.method)}</span>
                 <span className={f.confidence < 0.8 ? "text-review font-semibold" : ""}>{Math.round(f.confidence * 100)}%</span>
-                <span>{f.review_status}</span>
-                {f.notes.map((n) => <span key={n} className="text-urgent">{n}</span>)}
+                <span className={f.review_status === "rejected" ? "text-critical" : ""}>{tk("factStatus_", f.review_status)}</span>
+                {f.notes.length > 0 && <details lang="en"><summary className="cursor-pointer text-urgent">{t("recordedDetail")}</summary>
+                  {f.notes.map((n) => <div key={n}>{n}</div>)}</details>}
               </div>
               {canCorrect && f.review_status === "pending" && (
-                <div className="flex gap-1 mt-1">
+                <div className="flex flex-wrap gap-1 mt-1">
                   <button className="btn btn-ghost !py-0.5 !px-2 !text-xs" onClick={() => review(f, "confirm")}>{t("confirm")}</button>
                   <button className="btn btn-ghost !py-0.5 !px-2 !text-xs" onClick={() => review(f, "correct")}>{t("correct")}</button>
                   <button className="btn btn-danger !py-0.5 !px-2 !text-xs" onClick={() => review(f, "reject")}>{t("reject")}</button>

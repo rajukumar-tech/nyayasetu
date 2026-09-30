@@ -18,10 +18,12 @@ def attribute_hearings(db: Session, hearings: list[Hearing], use_llm: bool = Tru
         h.delay_attribution = a.label
         h.attribution_confidence = a.confidence
         h.attribution_method = a.method
-        needs = (a.label == "accused" and a.confidence < settings.confidence_threshold) or a.label == "unknown" and bool(h.reason_text)
+        # low-confidence "accused" calls change the computation; unknown and shared ("both") attributions are never
+        # subtracted (D-008) but are still uncertain, so they go to a reviewer too
+        needs = (a.label == "accused" and a.confidence < settings.confidence_threshold) or a.label in ("unknown", "both")
         if needs and not db.query(ReviewItem).filter_by(kind="delay_attribution", ref_id=h.id).first():
             db.add(ReviewItem(kind="delay_attribution", ref_id=h.id, confidence=a.confidence,
-                              title=f"Adjournment {h.date.isoformat()}: '{(h.reason_text or '')[:80]}'",
+                              title=f"Adjournment {h.date.isoformat()}: '{(h.reason_text or '')[:80] or '(no reason recorded)'}'",
                               payload={"hearing_id": h.id, "case_id": h.case_id, "suggested": a.label,
                                        "method": a.method, "notes": a.notes, "reason_text": h.reason_text}))
             queued += 1

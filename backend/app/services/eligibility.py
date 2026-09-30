@@ -12,6 +12,7 @@ from app.domain import ComputeContext
 from app.eligibility.engine import RULE_VERSION, PersonResult, evaluate_person
 from app.legal_kb.kb import KnowledgeBase
 from app.models import EligibilityResult, LegalVerification, Person
+from app.services.consistency import record_conflicts
 from app.services.mapping import jsonable, to_domain_person
 
 
@@ -34,7 +35,7 @@ def compute_for_person(db: Session, person: Person, kb: KnowledgeBase | None = N
     (facts + legal data version + rule version + date) reuse the current row."""
     kb = kb or load_kb(db)
     today = settings.today()
-    dp = to_domain_person(person)
+    dp = to_domain_person(person, record_conflicts(db, person))
     result = evaluate_person(dp, kb, ComputeContext(today=today, confidence_threshold=settings.confidence_threshold))
     payload = json.dumps({"p": jsonable(dp), "kb": kb.version, "rv": RULE_VERSION, "today": today.isoformat()},
                          sort_keys=True, default=str)
@@ -47,6 +48,7 @@ def compute_for_person(db: Session, person: Person, kb: KnowledgeBase | None = N
     if current is not None:
         current.is_current = False
     data = jsonable(result)
+    data["as_of"] = today.isoformat()  # the date the day-counts are valid for; older rows are recomputed before display
     for c in data["cases"]:
         tl = c.get("timeline") or {}
         c["timeline_explanation"] = [f"{i['start']} → {i['end']}: {inclusive(i)} day(s) — {i['explanation']}"

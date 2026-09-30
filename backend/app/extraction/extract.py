@@ -19,7 +19,8 @@ from app.extraction.dates import extract_dates
 from app.extraction.fields import Field, extract_fields
 
 DATE_FIELDS = {"offence_datetime", "fir_datetime", "arrest_datetime", "production_datetime", "remand_date",
-               "charge_sheet_date", "charge_sheet_offence_date", "admission_date", "stated_arrest_date"}
+               "charge_sheet_date", "charge_sheet_offence_date", "admission_date", "stated_arrest_date", "release_date",
+               "transfer_date"}
 
 
 class LLMFact(BaseModel):

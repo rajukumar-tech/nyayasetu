@@ -23,10 +23,12 @@ decide anything about a person.
 | jail_staff | prisoners in their jail; eligibility + alerts; **never** Defense Insights |
 | dlsa_admin | prisoners in their district; dashboards; assigns lawyers |
 | reviewer | review queue items only |
-| system_admin | everything, including insights — every view audited |
+| system_admin | the prisoner register (name, jail, status, review state, lawyer), adding prisoners, accounts, lawyer assignment, legal data, audit log — **no** case details, documents, Defense Insights or drafts |
 
-Defense Insights are privileged legal strategy. The superintendent's application drafted by jail staff never includes
-insight-derived sentences. Tests 53 and 58 cover this.
+Defense Insights are privileged legal strategy, visible only to the assigned lawyer. A lawyer's drafts are visible only
+to that lawyer; the superintendent's application drafted by jail staff never includes insight-derived sentences. Only
+the assigned lawyer uploads documents. An ID outside a user's scope gets the same "not found" as an ID that does not
+exist, and the attempt is audit-logged. Tests 53, 58 and `tests/test_flows.py` cover this.
 
 ## Audit
 Every view, list, edit, decision, export, merge/un-merge, legal-data verification and denied access is written to the

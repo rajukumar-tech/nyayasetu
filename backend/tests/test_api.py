@@ -51,9 +51,10 @@ def test_53_jail_staff_cannot_access_insights(client):
     r = client.get(f"/api/persons/{pid}/insights", headers=lawyer)
     assert r.status_code == 200 and r.json()["insights"]
     assert "Not legal advice" in r.json()["disclaimer"]
-    # a different lawyer (not assigned) is refused too
+    # a different lawyer (not assigned) is refused too — with the same 404 a non-existent ID gets, so the
+    # response does not reveal that the prisoner exists
     other = login(client, "lawyer2@nyayasetu.test")
-    assert client.get(f"/api/persons/{pid}/insights", headers=other).status_code == 403
+    assert client.get(f"/api/persons/{pid}/insights", headers=other).status_code == 404
 
 
 def test_54_draft_contains_only_verified_facts_fake_date_rejected(client):
@@ -70,7 +71,7 @@ def test_54_draft_contains_only_verified_facts_fake_date_rejected(client):
     rep = d["verifier_report"]
     assert rep["rejected"] == 0 and rep["fully_grounded_pct"] == 100.0
     assert all(s["sources"] for s in d["grounding"])
-    assert "Ravi Kumar" in d["content"] and "SYNTHETIC-TEST" in d["content"]
+    assert "Ramesh Babu" in d["content"] and "SYNTHETIC-TEST" in d["content"]  # T-ELIG (renamed from Ravi Kumar)
 
 
 def test_54b_verifier_rejects_injected_fake_date():
@@ -161,7 +162,7 @@ def test_58_rbac_scopes_and_audit(client):
     mine = {p["id"] for p in client.get("/api/persons", headers=lawyer).json()}
     theirs = {p["id"] for p in client.get("/api/persons", headers=lawyer2).json()}
     assert pid in mine and pid not in theirs and not (mine & theirs)
-    assert client.get(f"/api/persons/{pid}", headers=lawyer2).status_code == 403
+    assert client.get(f"/api/persons/{pid}", headers=lawyer2).status_code == 404  # uniform: no existence leak
     jail_rows = client.get("/api/persons", headers=jail).json()
     assert jail_rows and all(r["jail"] == "Central Prison Parappana Agrahara" for r in jail_rows)
     assert all(r["district"] == "Bengaluru Urban" for r in client.get("/api/persons", headers=dlsa).json())

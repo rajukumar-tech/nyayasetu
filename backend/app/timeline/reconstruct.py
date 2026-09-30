@@ -178,6 +178,10 @@ def build_intervals(events: list[CustodyEvent], today: date, threshold: float,
             "warning", [s for _, _, s in arrest.candidates if s]))
     if arrest.chosen and arrest.confidence < threshold:
         low.append(f"Arrest date {arrest.chosen.isoformat()} (confidence {arrest.confidence:.2f})")
+    primary_dates = sorted({d for d, p, _ in arrest.candidates if p})
+    if len(primary_dates) > 1:
+        # two PRIMARY documents disagree — picking the earliest is favourable to the prisoner but must be confirmed
+        low.append("Primary documents give different arrest dates: " + ", ".join(d.isoformat() for d in primary_dates))
 
     terminators = sorted((e for e in events if e.type in TERMINATORS), key=lambda e: e.start)
 
@@ -204,18 +208,28 @@ def build_intervals(events: list[CustodyEvent], today: date, threshold: float,
             if e.start > today:
                 flags.append(TimelineFlag("FUTURE_START_DATE", f"Custody record starts in the future ({e.start.isoformat()}); ignored.",
                                           "warning", [e.source] if e.source else []))
+                low.append(f"{e.type.value} record dated {e.start.isoformat()} is in the future")
                 continue
             if end < e.start:
                 flags.append(TimelineFlag("END_BEFORE_START", f"Custody record ends ({end.isoformat()}) before it starts "
                                           f"({e.start.isoformat()}); ignored.", "warning", [e.source] if e.source else []))
+                low.append(f"{e.type.value} record {e.start.isoformat()} → {end.isoformat()} has its end before its start")
                 continue
             custody.append(Interval(e.start, end, "custody", _describe(e), [e.source] if e.source else [], {e.case_id},
                                     [e.jail] if e.jail else [], explicit=e.type in COUNTING_INTERVALS and e.end is not None))
             if e.confidence < threshold:
                 low.append(f"{e.type.value} from {e.start.isoformat()} (confidence {e.confidence:.2f})")
         elif e.type in EXCLUSION_INTERVALS:
-            end = e.end or close(e.start)[0]
-            exclusions.append(Interval(e.start, min(end, today), "excluded", _describe(e), [e.source] if e.source else [], {e.case_id}))
+            end = min(e.end or close(e.start)[0], today)
+            if e.start > today or end < e.start:
+                # a reversed or future bail/absconding record must not be "subtracted" — a reversed range would
+                # otherwise split custody into two overlapping pieces and INFLATE the count
+                flags.append(TimelineFlag("INVALID_EXCLUSION_RANGE", f"{_describe(e).capitalize()} record "
+                                          f"{e.start.isoformat()} → {(e.end or end).isoformat()} is reversed or in the future; "
+                                          "ignored.", "warning", [e.source] if e.source else []))
+                low.append(f"{e.type.value} record {e.start.isoformat()} → {(e.end or end).isoformat()} is invalid")
+                continue
+            exclusions.append(Interval(e.start, end, "excluded", _describe(e), [e.source] if e.source else [], {e.case_id}))
     if open_ended:
         flags.append(TimelineFlag("CURRENT_CUSTODY_USES_TODAY",
                                   f"No release recorded for the latest custody — counted up to today ({today.isoformat()}).", "info"))

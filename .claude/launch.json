@@ -1,8 +1,31 @@
 {
   "version": "0.0.1",
   "configurations": [
-    {"name": "api", "runtimeExecutable": "C:/Users/ajitk/Desktop/nyayasetu/.venv/Scripts/python.exe",
-     "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8000", "--app-dir", "C:/Users/ajitk/Desktop/nyayasetu/backend"], "port": 8000},
-    {"name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "C:/Users/ajitk/Desktop/nyayasetu/frontend", "run", "dev"], "port": 3000}
+    {
+      "name": "api",
+      "runtimeExecutable": "C:/Users/Raju Kumar/Downloads/nyayasetu/nyayasetu/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--port",
+        "8000",
+        "--app-dir",
+        "C:/Users/Raju Kumar/Downloads/nyayasetu/nyayasetu/backend"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/Raju Kumar/Downloads/nyayasetu/nyayasetu/frontend/node_modules/next/dist/bin/next",
+        "dev",
+        "C:/Users/Raju Kumar/Downloads/nyayasetu/nyayasetu/frontend",
+        "--port",
+        "3000"
+      ],
+      "port": 3000
+    }
   ]
 }

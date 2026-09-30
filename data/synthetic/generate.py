@@ -164,6 +164,7 @@ class SynthPerson:
     convictions: list[dict] = field(default_factory=list)
     documents: list[dict] = field(default_factory=list)
     facts_summary: str = ""
+    demo_label: str | None = None  # the two headline demo prisoners carry a visible label
 
 
 class Builder:
@@ -357,7 +358,8 @@ def build_demo(b: Builder) -> None:
     ]
 
     # 2. ELIGIBLE first-time offender + Defense Insights showcase (IPC 380; arrested ~2y5m ago)
-    p = b.person("T-ELIG", "eligible_first_time", "Ravi Kumar", age_years=24, expected="ELIGIBLE", father="Ramaiah")
+    # (named Ramesh Babu so that the headline demo name "Ravi Kumar" belongs to exactly one — NOT eligible — prisoner)
+    p = b.person("T-ELIG", "eligible_first_time", "Ramesh Babu", age_years=24, expected="ELIGIBLE", father="Ramaiah")
     c = b.case(p, "c1", [("IPC", "380")], offence_ago=960, fir_date=953, first_remand_date=946, charge_sheet_date=880)
     c["facts"] = ("Theft of gold ornaments and cash from a dwelling house at night; recovery of a gold chain "
                   "allegedly at the instance of the accused.")
@@ -427,6 +429,7 @@ def build_demo(b: Builder) -> None:
                  expected="CRITICAL_BAIL_NOT_FURNISHED", vulnerability=["woman", "elderly"], father="Krishnappa")
     c = b.case(p, "c1", [("BNS", "318(4)")], offence_ago=300, fir_date=298, first_remand_date=290, charge_sheet_date=250,
                bail_granted_date=120)
+    b.custody(p, "arrest", 291, case=c, doc_type="arrest_memo")  # matches the arrest memo below (custody from arrest)
     b.custody(p, "judicial_custody", 290, None, case=c)
     p.documents += [b.arrest_memo(p, c, arrest_dt=at(b.ago(291), 20, 30), grounds="Yes", relative_informed="Yes",
                                   attested="Yes", medical="Done", woman_officer="No", night_permission="Not obtained")]
@@ -460,11 +463,103 @@ def build_demo(b: Builder) -> None:
     p.documents += [b.jail_record(p, c, admitted=b.ago(505), prisoner_no="UTP 6621", stated_arrest=b.ago(510))]
 
 
+# ---------------------------------------------------------------------- the two headline demo prisoners
+RESERVED_DEMO_NAMES = {"Ravi Kumar": "Ravi Shankar", "Suresh Kumar": "Suresh Babu"}
+
+
+def build_headline_demo(b: Builder) -> None:
+    """Two deliberately constructed, fully consistent cases for the demo. Every number the UI shows is produced
+    by the rule engine from these records — nothing here sets a status.
+
+    A. Ravi Kumar — NOT ELIGIBLE (first-time offender, BNS 303(2) theft, max 3 years)
+       custody 263 days (arrest 262 days ago → today, inclusive) − 21 days of accused-caused adjournment
+       = 242 counted  <  threshold 366 (⌈1/3 × 1,095.75⌉) → NOT YET; projected in 124 days.
+       Charge sheet 56 days after first remand → within the 60-day period → no default-bail right.
+
+    B. Suresh Kumar — ELIGIBLE (first-time offender, IPC 420 cheating, offence Dec 2023 → IPC punishment, max 7 years)
+       custody 991 days (arrest 990 days ago → today) − 30 days of accused-caused adjournment = 961 counted
+       ≥ threshold 853 (⌈1/3 × 2,556.75⌉) → ELIGIBLE; reached the threshold 108 days ago; 108 counted days beyond it.
+       Charge sheet 49 days after first remand → within 60 days → no default-bail right.
+    """
+    t = b.today
+    # ---------------- A. Ravi Kumar — NOT eligible
+    p = b.person("T-DEMO-NOT", "demo_not_eligible", "Ravi Kumar", age_years=26, expected="NOT_YET", father="Venkataramanappa")
+    p.demo_label = "DEMO A — not eligible"
+    c = b.case(p, "c1", [("BNS", "303(2)")], offence_ago=265, fir_date=264, first_remand_date=261, charge_sheet_date=205)
+    c["facts"] = "Alleged theft of a mobile phone from a shop counter; phone recovered from a second-hand dealer."
+    b.custody(p, "arrest", 262, case=c, doc_type="arrest_memo", confidence=0.97)
+    b.custody(p, "judicial_custody", 261, None, case=c, confidence=0.97)
+    hearings = [(190, 160, "PP sought time to secure witnesses.", "prosecution"),
+                (160, 139, "Adjourned at the request of the accused counsel.", "accused"),  # 21 days, accused
+                (139, 109, "Presiding Officer on leave.", "court"),
+                (109, 79, "Prosecution witness absent. Summons to be re-issued.", "prosecution"),
+                (79, 49, "Court busy with part-heard matter.", "court"),
+                (49, 19, "FSL report awaited by prosecution.", "prosecution")]
+    c["hearings"] = [{"date": b.ago(d).isoformat(), "next_date": b.ago(n).isoformat(), "reason_text": r, "true_attribution": a}
+                     for d, n, r, a in hearings]
+    p.documents += [
+        b.fir_doc(p, c, offence_dt=at(b.ago(265), 19, 30), fir_dt=at(b.ago(264), 10, 15), delay_expl="",
+                  witnesses="CW-1 shop owner; CW-2 independent witness Prasad"),
+        b.arrest_memo(p, c, arrest_dt=at(b.ago(262), 10), grounds="Yes", relative_informed="Yes (mother)",
+                      attested="Yes", medical="Done at General Hospital"),
+        b.remand_order(p, c, produced_dt=at(b.ago(261), 9, 30), remand_date=b.ago(261), custody="judicial",
+                       reasons="Recovery pending; accused has no fixed address in the city."),
+        b.charge_sheet(p, c, filed=b.ago(205), offence_date=b.ago(265), witnesses="CW-1 shop owner, CW-2 Prasad, IO",
+                       fsl="Received", recovery="Mobile phone recovered in the presence of two panch witnesses",
+                       confession="None", tip="Held; accused identified"),
+        b.jail_record(p, c, admitted=b.ago(261), prisoner_no="UTP 7701"),
+        b.order_sheet(c, c["hearings"]),
+    ]
+
+    # ---------------- B. Suresh Kumar — ELIGIBLE
+    p = b.person("T-DEMO-ELIG", "demo_eligible", "Suresh Kumar", age_years=31, expected="ELIGIBLE", father="Hanumanthappa")
+    p.demo_label = "DEMO B — eligible"
+    c = b.case(p, "c1", [("IPC", "420")], offence_ago=1006, fir_date=1003, first_remand_date=989, charge_sheet_date=940)
+    c["facts"] = ("Alleged cheating of four persons by promising government jobs and collecting money through bank "
+                  "transfers; transfers documented by bank statements.")
+    b.custody(p, "arrest", 990, case=c, doc_type="arrest_memo", confidence=0.97)
+    b.custody(p, "judicial_custody", 989, None, case=c, confidence=0.97)
+    hearings = [(900, 860, "PP sought time to secure witnesses.", "prosecution"),
+                (860, 830, "Presiding Officer on leave.", "court"),
+                (830, 800, "Prosecution witness absent. Summons to be re-issued.", "prosecution"),
+                (800, 770, "Adjourned at the request of the accused counsel.", "accused"),  # 30 days, accused
+                (770, 720, "Witness CW-2 absent despite service. Issue NBW.", "prosecution"),
+                (720, 660, "Court busy with part-heard matter.", "court"),
+                (660, 600, "FSL report awaited by prosecution.", "prosecution"),
+                (600, 540, "Accused not produced by jail authorities. Escort not available.", "prosecution"),
+                (540, 480, "Prosecution witness absent. Summons to be re-issued.", "prosecution"),
+                (480, 420, "PO on leave. Adjourned.", "court"),
+                (420, 360, "PP sought time to secure witnesses.", "prosecution"),
+                (360, 300, "Court busy with part-heard matter.", "court"),
+                (300, 240, "Witness CW-2 absent despite service. Issue NBW.", "prosecution"),
+                (240, 180, "Prosecution witness absent. Summons to be re-issued.", "prosecution"),
+                (180, 120, "Presiding Officer on leave.", "court"),
+                (120, 60, "PP sought time to secure witnesses.", "prosecution"),
+                (60, 10, "FSL report awaited by prosecution.", "prosecution")]
+    c["hearings"] = [{"date": b.ago(d).isoformat(), "next_date": b.ago(n).isoformat(), "reason_text": r, "true_attribution": a}
+                     for d, n, r, a in hearings]
+    p.documents += [
+        b.fir_doc(p, c, offence_dt=at(b.ago(1006), 14), fir_dt=at(b.ago(1003), 11, 30),
+                  delay_expl="Complainants collected bank statements before approaching the police.",
+                  witnesses="CW-1 to CW-4 complainants; CW-5 bank manager"),
+        b.arrest_memo(p, c, arrest_dt=at(b.ago(990), 16), grounds="Yes", relative_informed="Yes (wife)",
+                      attested="Yes", medical="Done at General Hospital"),
+        b.remand_order(p, c, produced_dt=at(b.ago(989), 11), remand_date=b.ago(989), custody="judicial",
+                       reasons="Money trail to be traced; accused may influence complainants."),
+        b.charge_sheet(p, c, filed=b.ago(940), offence_date=b.ago(1006), witnesses="CW-1 to CW-5, IO",
+                       fsl="Not applicable", recovery="Bank statements seized under mahazar",
+                       confession="None", tip="Not applicable"),
+        b.jail_record(p, c, admitted=b.ago(989), prisoner_no="UTP 3208"),
+        b.order_sheet(c, c["hearings"]),
+    ]
+
+
 def build_population(b: Builder, n: int) -> None:
     rng = b.rng
     names = list(NAME_VARIANTS)
     for i in range(n):
         name = rng.choice(names)
+        name = RESERVED_DEMO_NAMES.get(name, name)  # keep the headline demo names unique in the demo data
         district = rng.choice(list(DISTRICTS))
         gender = "female" if name in ("Lakshmi Devi", "Kavya R") else "male"
         p = b.person(f"T-{i:03d}", "random", name, gender=gender, age_years=rng.randint(19, 62), district=district,
@@ -575,6 +670,7 @@ def generate(today: date, seed: int = 7, population: int = 60) -> dict:
     b = Builder(today, rng)
     build_demo(b)
     build_population(b, population)
+    build_headline_demo(b)  # after the population so the random population is unchanged by it
     er = build_er_records(b)
     return {"generated_for_today": today.isoformat(), "seed": seed,
             "persons": [asdict(p) for p in b.people], "er_records": er,

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.core.llm import get_llm
 
 DOC_TYPES = ["fir", "arrest_memo", "remand_order", "charge_sheet", "court_order", "judgment", "bail_order",
-             "jail_record", "medical_record", "unknown"]
+             "jail_record", "medical_record", "release_order", "transfer_record", "unknown"]
 
 RULES: dict[str, list[str]] = {
     "fir": [r"first information report", r"\bF\.?I\.?R\b", r"ಪ್ರಥಮ ಮಾಹಿತಿ ವರದಿ", r"प्रथम सूचना रिपोर्ट"],
@@ -20,7 +20,28 @@ RULES: dict[str, list[str]] = {
     "bail_order": [r"enlarged on bail", r"bail (is )?granted", r"bail application", r"surety"],
     "jail_record": [r"jail admission", r"UTP No", r"prisoner", r"ಕಾರಾಗೃಹ ದಾಖಲೆ", r"ಕೈದಿ ಸಂಖ್ಯೆ"],
     "medical_record": [r"medical examination report", r"MLC", r"injury certificate", r"discharge summary"],
+    "release_order": [r"release order", r"order of release", r"released from (the )?(jail|prison|custody)", r"set at liberty",
+                      r"release warrant", r"date of release"],
+    "transfer_record": [r"transfer of (the )?prisoner", r"jail transfer", r"transfer order", r"date of transfer",
+                        r"transferred to"],
 }
+
+# What a document of each type must actually contain (fields found by the extractors) before its facts are
+# trusted automatically. The type itself comes from the TEXT, never from the filename or the uploader.
+REQUIRED_FIELDS: dict[str, list[set[str]]] = {  # every inner set: at least one of these fields must be present
+    "fir": [{"fir_number"}, {"offence_datetime", "fir_datetime"}, {"charge"}],
+    "arrest_memo": [{"arrest_datetime"}, {"person"}],
+    "remand_order": [{"remand_date", "production_datetime"}],
+    "charge_sheet": [{"charge_sheet_date"}, {"charge"}],
+    "court_order": [{"hearing"}],
+    "jail_record": [{"admission_date", "prisoner_number"}],
+    "release_order": [{"release_date"}],
+    "transfer_record": [{"transfer_date"}],
+}
+
+
+def missing_required(doc_type: str, fields: set[str]) -> list[str]:
+    return [" / ".join(sorted(req)) for req in REQUIRED_FIELDS.get(doc_type, []) if not (req & fields)]
 
 
 class DocTypeLLM(BaseModel):

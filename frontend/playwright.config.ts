@@ -8,10 +8,11 @@ export default defineConfig({
   timeout: 90_000,
   workers: 1,
   expect: { timeout: 20_000 },
-  use: { baseURL: "http://localhost:3000", trace: "retain-on-failure" },
+  // PW_CHANNEL=chrome uses the installed Google Chrome instead of Playwright's own browser download
+  use: { baseURL: "http://localhost:3000", trace: "retain-on-failure", channel: process.env.PW_CHANNEL },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    { name: "mobile", use: { ...devices["Pixel 7"], channel: process.env.PW_CHANNEL } },
   ],
   webServer: {
     command: "npm run dev",

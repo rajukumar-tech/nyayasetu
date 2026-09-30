@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.lifecycle import router as lifecycle_router
 from app.api.routes import router
 from app.core.config import settings
 from app.db import create_all
@@ -57,3 +58,4 @@ def _startup() -> None:
 
 
 app.include_router(router)
+app.include_router(lifecycle_router)

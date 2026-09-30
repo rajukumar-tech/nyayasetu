@@ -56,6 +56,10 @@ LABELS: list[tuple[str, str, str]] = [
     (r"utp no\.?|ಕೈದಿ ಸಂಖ್ಯೆ", "prisoner_number", "text"),
     (r"date of admission|ದಾಖಲಾದ ದಿನಾಂಕ", "admission_date", "date"),
     (r"date of arrest \(as stated\)", "stated_arrest_date", "date"),
+    (r"date of release|released on|ಬಿಡುಗಡೆ ದಿನಾಂಕ|रिहाई की तारीख", "release_date", "date"),
+    (r"date of transfer|transferred on", "transfer_date", "date"),
+    (r"transferred to|transfer to", "transfer_to", "text"),
+    (r"cnr(?: no\.?)?", "cnr", "text"),
 ]
 _SEG_SPLIT = re.compile(r"[ \t]{2,}(?=[^\s:][^:\n]{0,40}:)")
 _SEG_RE = re.compile(r"^(?P<label>[^:\n]{2,80}?)[ \t]*:[ \t]*(?P<value>.*?)[ \t]*$")
