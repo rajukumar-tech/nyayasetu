@@ -160,12 +160,21 @@ def run(target: int = 1000, api_checks: bool = True, write_report: bool = True, 
                             scope[f"dlsa{i}"].add(p.id)
                 # list endpoints return EXACTLY the scope (and nothing for reviewer / zero-assignment lawyer)
                 rows_ref: dict[str, dict] = {}  # list rows as the DLSA of each district sees them
-                reg = client.get("/api/register", headers=tok["admin"])
-                auth["requests"] += 1
-                if {x["id"] for x in reg.json()} != register_scope:
-                    auth["failures"].append("admin register does not list exactly every prisoner")
-                if any(k in x for x in reg.json() for k in ("cases", "custody_days", "eligibility", "documents")):
-                    auth["failures"].append("admin register exposes case details")
+                # the technical admin has no register; each DLSA's register is exactly its district, without case details
+                if client.get("/api/register", headers=tok["admin"]).status_code != 403:
+                    auth["failures"].append("the technical admin can read the prisoner register")
+                reg_ids: set[str] = set()
+                for i in range(len(DISTRICTS)):
+                    reg = client.get("/api/register", headers=tok[f"dlsa{i}"])
+                    auth["requests"] += 2
+                    ids = {x["id"] for x in reg.json()}
+                    if ids != scope[f"dlsa{i}"]:
+                        auth["failures"].append(f"dlsa{i} register differs from its district")
+                    if any(k in x for x in reg.json() for k in ("cases", "custody_days", "eligibility", "documents")):
+                        auth["failures"].append("register exposes case details")
+                    reg_ids |= ids
+                if reg_ids != register_scope:
+                    auth["failures"].append("district registers do not cover every prisoner")
                 for k, h in tok.items():
                     r = client.get("/api/persons", headers=h)
                     auth["requests"] += 1

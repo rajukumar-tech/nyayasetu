@@ -131,11 +131,11 @@ def create_person(body: PersonCreate, user: User = Depends(require(Perm.CREATE_P
     if dup is not None:
         existing, why = dup
         audit(db, user, "duplicate_blocked", "person", existing.id, detail=why, commit=True)
-        if Role(user.role) == Role.SYSTEM_ADMIN or (existing.jail and existing.jail == user.jail):
+        if existing.jail and existing.jail == user.jail:
             raise HTTPException(409, f"This prisoner already exists: {existing.canonical_name} ({existing.jail}) — {why}. "
                                      "Open the existing record instead of adding a new one.")
-        raise HTTPException(409, f"A prisoner with these details already exists ({why}). Ask the administrator to "
-                                 "transfer or update the existing record.")
+        raise HTTPException(409, f"A prisoner with these details already exists ({why}). Ask the DLSA or the jail "
+                                 "holding that record to transfer or update it.")
     p = Person(canonical_name=body.name.strip(), relative_name_variants=[body.relative_name.strip()] if body.relative_name else [],
                relation=body.relation, gender=body.gender, dob=body.dob, addresses=[body.address] if body.address else [],
                jail=jail, district=district, state="Karnataka", vulnerability=["woman"] if body.gender == "female" else [],
@@ -210,13 +210,16 @@ def intake_status(p: Person) -> str:
 # ------------------------------------------------------------------ prisoner register (admin)
 @router.get("/register")
 def register(user: User = Depends(require(Perm.VIEW_REGISTER)), db: Session = Depends(get_db)) -> list[dict]:
-    """Who is in the system, where, intake-review state, headline status and lawyer — enough to assign a lawyer.
+    """Who is in the DLSA's district, intake-review state, headline status and lawyer — enough to assign a lawyer.
     No case details, documents, facts, insights or drafts."""
     from app.api.routes import _fresh_result
     from app.eligibility.engine import urgency_rank
     lawyers = {u.id: u.name for u in db.scalars(select(User).where(User.role == Role.LAWYER))}
     rows = []
-    for p in db.scalars(select(Person).where(Person.merged_into_id.is_(None))):
+    q = select(Person).where(Person.merged_into_id.is_(None))
+    if Role(user.role) == Role.DLSA_ADMIN:
+        q = q.where(Person.district == user.district)
+    for p in db.scalars(q):
         r = _fresh_result(db, p)
         rows.append({"id": p.id, "name": p.canonical_name, "jail": p.jail, "district": p.district,
                      "status": r.status if r else None, "intake": intake_status(p),

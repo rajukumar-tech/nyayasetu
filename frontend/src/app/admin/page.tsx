@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useDialog } from "@/components/Dialog";
 import { Shell } from "@/components/Shell";
-import { Card, DemoBadge, ErrorBox, Loading, Notice, StatusBadge } from "@/components/ui";
+import { Card, ErrorBox, Loading, Notice } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { apiErrorText, useI18n, type Key } from "@/lib/i18n";
@@ -14,57 +14,6 @@ interface Legal { version: string; records: Rec[]; rules: { key: string; ref: st
 interface AuditRow { id: number; ts: string; role: string; action: string; entity_type: string; entity_id?: string; detail?: string;
   user_name?: string | null; user_email?: string | null; outcome: "ok" | "denied" }
 interface UserRow { id: string; email: string; name: string; role: string; active: boolean }
-interface RegRow { id: string; name: string; jail?: string; district?: string; status?: string | null; demo_label?: string | null;
-  intake: "pending_review" | "verified" | "returned"; assigned_lawyer_id?: string | null; assigned_lawyer?: string | null }
-interface LawyerRow { id: string; name: string; active: boolean }
-
-/** Who is in the system and who defends them. No case details here — those belong to the assigned lawyer. */
-function Register({ onChange }: { onChange: (msg: string | null, err: string | null) => void }) {
-  const { t, tk } = useI18n();
-  const [rows, setRows] = useState<RegRow[] | null>(null);
-  const [lawyers, setLawyers] = useState<LawyerRow[]>([]);
-  const load = () => {
-    api<RegRow[]>("/api/register").then(setRows).catch((e) => onChange(null, apiErrorText(t, e)));
-    api<LawyerRow[]>("/api/lawyers").then((l) => setLawyers(l.filter((x) => x.active))).catch(() => {});
-  };
-  useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
-  async function assign(pid: string, lawyerId: string) {
-    try { await api(`/api/persons/${pid}/assign`, { method: "POST", body: JSON.stringify({ lawyer_id: lawyerId }) }); onChange(t("assigned"), null); load(); }
-    catch (e) { onChange(null, apiErrorText(t, e)); }
-  }
-  if (!rows) return <Loading />;
-  return (
-    <Card title={t("register")} className="mb-5">
-      <p className="text-sm text-muted mb-2">{t("registerNote")}</p>
-      <div className="overflow-x-auto max-h-[28rem]">
-        <table className="w-full text-sm">
-          <thead className="text-left text-muted sticky top-0 bg-surface"><tr>
-            <th className="py-1 pr-2">{t("name")}</th><th className="pr-2">{t("jail")}</th><th className="pr-2">{t("intakeCol")}</th>
-            <th className="pr-2">{t("status")}</th><th>{t("lawyerCol")}</th></tr></thead>
-          <tbody>{rows.map((r) => (
-            <tr key={r.id} className="border-t border-line align-top">
-              <td className="py-1.5 pr-2 font-medium">{r.name}<DemoBadge label={r.demo_label} /></td>
-              <td className="pr-2 text-xs">{r.jail}<div className="text-muted">{r.district}</div></td>
-              <td className={`pr-2 text-xs font-semibold ${r.intake === "verified" ? "text-ok" : r.intake === "returned" ? "text-critical" : "text-review"}`}>{tk("intake_", r.intake)}</td>
-              <td className="pr-2"><StatusBadge code={r.status} /></td>
-              <td className="py-1">
-                {r.intake !== "verified" ? <span className="text-xs text-muted">{t("assignAfterReview")}</span> : (
-                  <select aria-label={t("assign")} value={r.assigned_lawyer_id ?? ""} onChange={(e) => assign(r.id, e.target.value)}
-                    className="border border-line rounded px-1 py-0.5 max-w-44 text-sm">
-                    <option value="" disabled>{t("assignLawyer")}</option>
-                    {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
-                )}
-              </td>
-            </tr>
-          ))}</tbody>
-        </table>
-        {rows.length === 0 && <p className="p-2 text-muted">{t("noItems")}</p>}
-      </div>
-    </Card>
-  );
-}
-
 export default function Admin() {
   const { t, tk, fdt } = useI18n();
   const { user } = useAuth();
@@ -126,8 +75,6 @@ export default function Admin() {
       </div>
       <ErrorBox error={error} />
       <Notice text={msg} />
-
-      <Register onChange={(m, e) => { setMsg(m); setError(e); if (m) loadAudit(); }} />
 
       <Card title={t("audit")} className="mb-5" actions={
         <div role="group" className="flex gap-1">

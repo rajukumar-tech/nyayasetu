@@ -63,8 +63,8 @@ Upload documents → Read them → Pull out facts → Match the person → Build
    settlement, probation, speedy trial, and similar judgments retrieved (never invented). Every insight must point to
    evidence in the documents; no win-percentages; nothing unlawful. Lawyer accepts or rejects each.
 10. **Drafting** — seven application types in English or Kannada, built sentence by sentence from sources; a checker
-    rejects any sentence whose date, section, number, name or citation isn't supported. Edit (versions kept), approve,
-    export Word/PDF.
+    rejects any sentence whose date, section, number, name or citation isn't supported. Edit (versions kept) and
+    export Word/PDF. There is no "approve" button: the lawyer reviews, signs and files the application outside the app.
 11. **Nightly monitoring** — recomputes everyone; alerts for eligible in 30/7/0 days, overdue, critical, default-bail
     windows, and documents that change a result; never duplicates; escalates unacknowledged alerts to the DLSA.
 

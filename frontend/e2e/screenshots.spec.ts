@@ -60,22 +60,33 @@ test("capture", async ({ page }) => {
   await page.getByRole("combobox").first().selectOption("en");
   await logout(page);
 
-  // admin: dashboard (register, audit log)
+  // admin: technical dashboard (audit log, users, legal data)
   await login(page, "admin@nyayasetu.test");
-  await expect(page.getByRole("heading", { name: "Prisoner register" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
   await page.screenshot({ path: `${OUT}/admin.png` });
   await logout(page);
 
   // reviewer
   await login(page, "reviewer@nyayasetu.test");
-  await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
-  await page.getByRole("button", { name: "Delay attribution", exact: true }).click();
-  await page.waitForTimeout(800);
-  await page.screenshot({ path: `${OUT}/reviewer.png` });
+  await expect(page.getByRole("heading", { name: "Review queue", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Extractions", exact: true }).click();
+  await page.getByRole("button", { name: /It read: arrest date/ }).click();
+  await page.getByText("What each choice does").waitFor();
+  await page.screenshot({ path: `${OUT}/reviewer.png`, fullPage: true });
   await logout(page);
 
   // DLSA
   await login(page, "dlsa@nyayasetu.test");
   await page.getByText("Overdue undertrials by district").waitFor();
   await page.screenshot({ path: `${OUT}/dlsa.png` });
+  await page.getByRole("navigation").getByRole("link", { name: "Lawyers" }).click();
+  await page.getByText("Add a lawyer").first().waitFor();
+  await page.screenshot({ path: `${OUT}/lawyers.png` });
+  await logout(page);
+
+  // jail staff: add prisoner
+  await login(page, "jail@nyayasetu.test");
+  await page.getByRole("navigation").getByRole("link", { name: "Add prisoner" }).click();
+  await page.getByRole("heading", { name: "Add a prisoner" }).waitFor();
+  await page.screenshot({ path: `${OUT}/add-prisoner.png` });
 });

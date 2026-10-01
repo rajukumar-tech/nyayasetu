@@ -89,7 +89,6 @@ export function DraftsPanel({ personId, caseId, canDraft, superintendentOnly }: 
             <button className="btn btn-ghost !py-1" onClick={() => exportAs("docx")}>{t("exportDocx")}</button>
             <button className="btn btn-ghost !py-1" onClick={() => exportAs("pdf")}>{t("exportPdf")}</button>
             {canDraft && edit == null && <button className="btn btn-ghost !py-1" onClick={() => setEdit(open.content)}>{t("edit")}</button>}
-            {canDraft && open.status !== "approved" && <button className="btn btn-primary !py-1" onClick={() => patch({ status: "approved" })}>{t("approve")}</button>}
           </div>
         }>
           <div className={`text-sm mb-3 p-2 rounded-md ${open.verifier_report.rejected ? "bg-critical-bg text-critical" : "bg-ok-bg text-ok"}`} role="status">

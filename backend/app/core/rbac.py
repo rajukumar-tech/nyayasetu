@@ -51,13 +51,14 @@ PERMISSIONS: dict[Role, set[Perm]] = {
     # assigned lawyer, so every document in a case file comes through the person responsible for that case
     Role.JAIL_STAFF: {P.VIEW_PRISONER, P.ACK_ALERTS, P.SUPERINTENDENT_APPLICATION, P.CREATE_PRISONER,
                       P.CUSTODY_EVENTS, P.UPDATE_CASE},
-    Role.DLSA_ADMIN: {P.VIEW_PRISONER, P.DISTRICT_DASHBOARD, P.ASSIGN_LAWYERS, P.ACK_ALERTS, P.MANAGE_LAWYERS},
+    Role.DLSA_ADMIN: {P.VIEW_PRISONER, P.DISTRICT_DASHBOARD, P.ASSIGN_LAWYERS, P.ACK_ALERTS, P.MANAGE_LAWYERS,
+                      P.VIEW_REGISTER},
     Role.REVIEWER: {P.REVIEW_QUEUE, P.CORRECT_FACTS, P.MERGE_PERSONS},
-    # The system admin runs the system: adds prisoners, manages accounts, assigns lawyers, keeps the legal data and
-    # reads the audit log. It deliberately does NOT get case details, documents, Defense Insights, drafts or the
-    # review queue — those belong to the assigned lawyer, the jail, the DLSA and the reviewer.
-    Role.SYSTEM_ADMIN: {P.CREATE_PRISONER, P.ASSIGN_LAWYERS, P.MANAGE_LAWYERS, P.MANAGE_USERS, P.VIEW_AUDIT,
-                        P.MANAGE_LEGAL_DATA, P.VIEW_REGISTER},
+    # The system admin does TECHNICAL work only: user accounts and password resets, the audit log, legal-data
+    # verification and nightly monitoring. Prisoners are added by jail staff, lawyers are added and assigned by the
+    # DLSA, new records are checked by the reviewer — the admin does none of that, and never sees case details,
+    # documents, Defense Insights or drafts.
+    Role.SYSTEM_ADMIN: {P.MANAGE_USERS, P.VIEW_AUDIT, P.MANAGE_LEGAL_DATA},
 }
 
 

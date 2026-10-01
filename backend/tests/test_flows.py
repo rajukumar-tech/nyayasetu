@@ -82,8 +82,8 @@ def test_headline_demo_prisoners(client):
         assert not any(f["code"] == "DOCUMENT_RECORD_CONFLICT" for f in p["eligibility"]["cases"][0]["flags"])
         assert not p["eligibility"]["cases"][0]["needs_verification"]
     # the headline name is unique in the demo data (the old eligible "Ravi Kumar" is now Ramesh Babu)
-    admin = login(client, "admin@nyayasetu.test")
-    assert [r["name"] for r in client.get("/api/register", headers=admin).json()].count("Ravi Kumar") == 1
+    dlsa = login(client, "dlsa@nyayasetu.test")
+    assert [r["name"] for r in client.get("/api/register", headers=dlsa).json()].count("Ravi Kumar") == 1
 
 
 # ------------------------------------------------------------------ FLOW A: new prisoner → unassigned → assigned
@@ -100,10 +100,11 @@ def test_flow_a_new_prisoner_starts_unassigned(client):
     assert row["assigned_lawyer_id"] is None
     lawyer_id = client.get("/api/auth/me", headers=lawyer).json()["id"]
     # not assignable until the reviewer has verified the entered details
-    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": lawyer_id}, headers=admin).status_code == 409
-    assert any(r["id"] == new_id and r["intake"] == "pending_review" for r in client.get("/api/register", headers=admin).json())
+    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": lawyer_id}, headers=dlsa).status_code == 409
+    assert any(r["id"] == new_id and r["intake"] == "pending_review" for r in client.get("/api/register", headers=dlsa).json())
     verify_intake(client, new_id)
-    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": lawyer_id}, headers=admin).status_code == 200
+    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": lawyer_id}, headers=admin).status_code == 403
+    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": lawyer_id}, headers=dlsa).status_code == 200
     assert client.get(f"/api/persons/{new_id}", headers=lawyer).status_code == 200
     acts = {(a["action"], a["entity_id"]) for a in audit_actions(client, admin, entity_id=new_id)}
     assert {("create_prisoner", new_id), ("verify_intake", new_id), ("assign_lawyer", new_id)} <= acts
@@ -273,7 +274,7 @@ def test_flow_f_release_closes_custody_and_resolves_alerts(client):
     r1 = client.post(f"/api/persons/{target}/recompute", headers=lawyer).json()
     r2 = client.post(f"/api/persons/{target}/recompute", headers=lawyer).json()
     assert r1["status"] == r2["status"] == "NOT_APPLICABLE" and r2["changed"] is False
-    assert next(r for r in client.get("/api/register", headers=admin).json() if r["id"] == target)["status"] == "NOT_APPLICABLE"
+    assert next(r for r in client.get("/api/register", headers=dlsa).json() if r["id"] == target)["status"] == "NOT_APPLICABLE"
     assert "record_release" in [a["action"] for a in audit_actions(client, admin, entity_id=target)]
 
 
@@ -459,12 +460,12 @@ def test_current_session_audit_entries_are_visible_to_admin(client):
     admin = {"Authorization": f"Bearer {admin_login['access_token']}"}
     since = admin_login["user"]["session_audit_id"]
     target = pid("T-DEMO-ELIG")
-    client.get("/api/register", headers=admin)
     client.post("/api/admin/run-nightly", headers=admin)
     client.get(f"/api/persons/{target}", headers=admin)  # refused: case details are not the admin's
+    client.get("/api/register", headers=admin)            # refused: the register belongs to the DLSA
     rows = client.get("/api/admin/audit", params={"after_id": since - 1}, headers=admin).json()
     acts = {r["action"] for r in rows}
-    assert {"login", "list", "run_nightly", "access_denied"} <= acts
+    assert {"login", "run_nightly", "access_denied"} <= acts
     first = rows[-1]
     assert first["action"] == "login" and first["user_name"] and first["role"] == "system_admin"
     assert first["ts"].endswith("+00:00")  # timezone-aware: shown correctly in the browser's local time
@@ -480,7 +481,7 @@ def test_deactivated_admin_token_rejected_and_self_deactivation_blocked(client):
 def test_role_matrix_on_admin_endpoints(client):
     roles = {e: login(client, f"{e}@nyayasetu.test") for e in ("lawyer", "jail", "dlsa", "reviewer")}
     for name, h in roles.items():
-        assert client.get("/api/register", headers=h).status_code == 403, name
+        assert client.get("/api/register", headers=h).status_code == (200 if name == "dlsa" else 403), name
         assert client.get("/api/admin/audit", headers=h).status_code == 403, name
         assert client.get("/api/admin/users", headers=h).status_code == 403, name
         assert client.post("/api/admin/run-nightly", headers=h).status_code == 403, name
@@ -491,8 +492,8 @@ def test_role_matrix_on_admin_endpoints(client):
                        headers=roles["lawyer"]).status_code == 403
 
 
-def test_admin_does_admin_work_only(client):
-    """Admin: dashboard, add prisoners, lawyer accounts, assignment, audit, legal data — never case contents."""
+def test_admin_does_technical_work_only(client):
+    """Admin: accounts, password resets, audit log, legal data, monitoring. Not prisoners, lawyers or assignment."""
     admin, lawyer = login(client, "admin@nyayasetu.test"), login(client, "lawyer@nyayasetu.test")
     target = pid("T-DEMO-ELIG")
     p = client.get(f"/api/persons/{target}", headers=lawyer).json()
@@ -500,15 +501,22 @@ def test_admin_does_admin_work_only(client):
               client.get(f"/api/persons/{target}/insights", headers=admin), client.get(f"/api/persons/{target}/drafts", headers=admin),
               client.get(f"/api/documents/{p['documents'][0]['id']}", headers=admin), client.get("/api/review", headers=admin),
               client.get("/api/alerts", headers=admin), client.get("/api/dashboard/dlsa", headers=admin),
-              client.post(f"/api/persons/{target}/documents", files={"file": ("x.txt", b"x")}, headers=admin)]
+              client.post(f"/api/persons/{target}/documents", files={"file": ("x.txt", b"x")}, headers=admin),
+              client.get("/api/register", headers=admin), client.get("/api/lawyers", headers=admin),
+              client.post("/api/lawyers", json={"email": "a@b.in", "name": "Adv. A", "password": "0123456789"}, headers=admin),
+              client.post(f"/api/persons/{target}/assign", json={"lawyer_id": "x"}, headers=admin),
+              new_prisoner(client, admin, name="Admin Added", jail=JAIL_A, district="Bengaluru Urban")]
     for r in denied:
         assert r.status_code in (403, 404), (r.request.url, r.status_code)
         assert "Suresh" not in r.text
-    reg = client.get("/api/register", headers=admin).json()
-    row = next(r for r in reg if r["id"] == target)
+    # what the admin CAN do
+    assert client.get("/api/admin/users", headers=admin).status_code == 200
+    assert client.get("/api/admin/audit", headers=admin).status_code == 200
+    assert client.get("/api/legal/records", headers=admin).status_code == 200
+    assert client.post("/api/admin/run-nightly", headers=admin).status_code == 200
+    # the DLSA's register is limited to case-free summary rows
+    row = next(r for r in client.get("/api/register", headers=login(client, "dlsa@nyayasetu.test")).json() if r["id"] == target)
     assert row["name"] == "Suresh Kumar" and "cases" not in row and "custody_days" not in row
-    r = new_prisoner(client, admin, name="Admin Added", jail="Central Prison Kalaburagi", district="Kalaburagi")
-    assert r.status_code == 200 and r.json()["intake"] == "pending_review"
 
 
 def test_only_the_assigned_lawyer_uploads_documents(client):
@@ -524,14 +532,14 @@ def test_only_the_assigned_lawyer_uploads_documents(client):
 
 
 def test_returned_intake_blocks_assignment(client):
-    jail, admin, reviewer = login(client, "jail@nyayasetu.test"), login(client, "admin@nyayasetu.test"), login(client, "reviewer@nyayasetu.test")
+    jail, dlsa, reviewer = login(client, "jail@nyayasetu.test"), login(client, "dlsa@nyayasetu.test"), login(client, "reviewer@nyayasetu.test")
     new_id = new_prisoner(client, jail, name="Returned Intake").json()["id"]
     item = next(i for i in client.get("/api/review", params={"kind": "new_prisoner"}, headers=reviewer).json() if i["ref_id"] == new_id)
     assert item["payload"]["arrest_date"] and item["payload"]["charges"] == ["BNS 303(2)"]
     client.post(f"/api/review/{item['id']}/resolve", json={"action": "reject", "note": "arrest date looks wrong"}, headers=reviewer)
     l1 = client.get("/api/auth/me", headers=login(client, "lawyer@nyayasetu.test")).json()["id"]
-    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": l1}, headers=admin).status_code == 409
-    assert next(r for r in client.get("/api/register", headers=admin).json() if r["id"] == new_id)["intake"] == "returned"
+    assert client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": l1}, headers=dlsa).status_code == 409
+    assert next(r for r in client.get("/api/register", headers=dlsa).json() if r["id"] == new_id)["intake"] == "returned"
 
 
 def test_stale_result_is_recomputed_before_display(client, monkeypatch):
@@ -546,10 +554,10 @@ def test_stale_result_is_recomputed_before_display(client, monkeypatch):
 
 def test_typed_in_prisoner_stays_in_review_until_documents_support_it(client):
     """A new prisoner's details are typed in by hand: no definite result until documents back them up."""
-    admin, lawyer = login(client, "admin@nyayasetu.test"), login(client, "lawyer@nyayasetu.test")
+    jail, dlsa, lawyer = login(client, "jail@nyayasetu.test"), login(client, "dlsa@nyayasetu.test"), login(client, "lawyer@nyayasetu.test")
     today = settings.today()
     arrest, remand = today - timedelta(days=200), today - timedelta(days=199)
-    r = new_prisoner(client, admin, name="Evidence Needed", jail=JAIL_A, district="Bengaluru Urban",
+    r = new_prisoner(client, jail, name="Evidence Needed", jail=JAIL_A, district="Bengaluru Urban",
                      arrest_date=arrest.isoformat(), first_remand_date=remand.isoformat(),
                      offence_date=(arrest - timedelta(days=2)).isoformat(),
                      charge_sheet_date=(remand + timedelta(days=40)).isoformat())
@@ -557,7 +565,7 @@ def test_typed_in_prisoner_stays_in_review_until_documents_support_it(client):
     assert r.json()["status"] == "REVIEW"
     verify_intake(client, new_id)
     l1 = client.get("/api/auth/me", headers=lawyer).json()["id"]
-    client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": l1}, headers=admin)
+    client.post(f"/api/persons/{new_id}/assign", json={"lawyer_id": l1}, headers=dlsa)
     c = client.get(f"/api/persons/{new_id}", headers=lawyer).json()["eligibility"]["cases"][0]
     assert c["status"] == "REVIEW" and c["counted_days"] == 201  # numbers shown, but only as provisional
     assert sum(f["code"] == "UNVERIFIED_MANUAL_ENTRY" for f in c["flags"]) == 3
@@ -579,30 +587,29 @@ def test_typed_in_prisoner_stays_in_review_until_documents_support_it(client):
 
 
 def test_the_same_prisoner_cannot_be_added_twice(client):
-    admin, jail_other = login(client, "admin@nyayasetu.test"), None
-    reviewer = login(client, "reviewer@nyayasetu.test")
+    admin, jail_a = login(client, "admin@nyayasetu.test"), login(client, "jail@nyayasetu.test")
     base = dict(jail=JAIL_A, district="Bengaluru Urban")
-    first = new_prisoner(client, admin, name="Duplicate Check", cnr="KA01999900012026", police_station="Hebbal PS",
+    first = new_prisoner(client, jail_a, name="Duplicate Check", cnr="KA01999900012026", police_station="Hebbal PS",
                          fir_number="301/2026", **base)
     assert first.status_code == 200
     # same CNR (even with different spacing/case)
-    r = new_prisoner(client, admin, name="Someone Else", cnr="ka01 9999 0001 2026", **base)
+    r = new_prisoner(client, jail_a, name="Someone Else", cnr="ka01 9999 0001 2026", **base)
     assert r.status_code == 409 and "Duplicate Check" in r.json()["detail"] and "CNR" in r.json()["detail"]
     # same FIR at the same police station
-    r = new_prisoner(client, admin, name="Another Name", fir_number="301/2026", police_station="HEBBAL PS", **base)
+    r = new_prisoner(client, jail_a, name="Another Name", fir_number="301/2026", police_station="HEBBAL PS", **base)
     assert r.status_code == 409 and "FIR" in r.json()["detail"]
     # same person by name + father + DOB, spelled differently
     body_dob = "1990-05-05"
-    a = client.post("/api/persons", headers=admin, json={"name": "Nagaraju Gowda", "relative_name": "Ramegowda", "relation": "s/o",
+    a = client.post("/api/persons", headers=jail_a, json={"name": "Nagaraju Gowda", "relative_name": "Ramegowda", "relation": "s/o",
                     "dob": body_dob, "jail": JAIL_A, "district": "Bengaluru Urban",
                     "case": {"court": "JMFC", "charges": [{"act": "BNS", "section": "303(2)"}], "arrest_date": "2026-05-01"}})
     assert a.status_code == 200
-    b = client.post("/api/persons", headers=admin, json={"name": "NAGARAJU GOUDA", "relative_name": "Rame Gowda", "relation": "s/o",
+    b = client.post("/api/persons", headers=jail_a, json={"name": "NAGARAJU GOUDA", "relative_name": "Rame Gowda", "relation": "s/o",
                     "dob": body_dob, "jail": JAIL_A, "district": "Bengaluru Urban",
                     "case": {"court": "JMFC", "charges": [{"act": "BNS", "section": "303(2)"}], "arrest_date": "2026-05-01"}})
     assert b.status_code == 409 and "date of birth" in b.json()["detail"]
     # a look-alike (same name, different father) is a different person: allowed, but sent to the reviewer
-    c = client.post("/api/persons", headers=admin, json={"name": "Nagaraju Gowda", "relative_name": "Siddappa", "relation": "s/o",
+    c = client.post("/api/persons", headers=jail_a, json={"name": "Nagaraju Gowda", "relative_name": "Siddappa", "relation": "s/o",
                     "dob": "1975-01-01", "jail": JAIL_A, "district": "Bengaluru Urban",
                     "case": {"court": "JMFC", "charges": [{"act": "BNS", "section": "303(2)"}], "arrest_date": "2026-05-01"}})
     assert c.status_code == 200
@@ -614,4 +621,4 @@ def test_the_same_prisoner_cannot_be_added_twice(client):
     r = new_prisoner(client, other, name="Whoever", cnr="KA01999900012026", district="Kalaburagi")
     assert r.status_code == 409 and "Duplicate Check" not in r.json()["detail"] and JAIL_A not in r.json()["detail"]
     assert "duplicate_blocked" in [x["action"] for x in audit_actions(client, admin)]
-    del jail_other, reviewer
+

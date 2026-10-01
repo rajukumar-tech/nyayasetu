@@ -45,12 +45,24 @@ test("jail staff: no Defense Insights, no document upload, superintendent's appl
   await expect(page.getByText("Prepare superintendent's application")).toBeVisible();
 });
 
-test("admin sees only admin work", async ({ page }) => {
+test("admin sees only technical work", async ({ page }) => {
   await login(page, "admin@nyayasetu.test");
   const nav = page.getByRole("navigation");
-  await expect(nav.getByRole("link")).toHaveText(["Admin", "Add prisoner", "Lawyers"]);
-  await expect(page.getByRole("heading", { name: "Prisoner register" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Suresh Kumar" })).toHaveCount(0); // no way into case details
+  await expect(nav.getByRole("link")).toHaveText(["Admin"]);
+  await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
+  await expect(page.getByText("Suresh Kumar")).toHaveCount(0); // no prisoners at all on the admin's screen
+  await page.goto("/prisoners/new");
+  await expect(page.getByText("Your role cannot open this page.")).toBeVisible();
+  await page.goto("/lawyers");
+  await expect(page.getByText("Your role cannot open this page.")).toBeVisible();
+});
+
+test("jail staff add prisoners; the DLSA manages lawyers", async ({ page }) => {
+  await login(page, "jail@nyayasetu.test");
+  await expect(page.getByRole("navigation").getByRole("link")).toHaveText(["Prisoners", "Add prisoner", "Alerts"]);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await login(page, "dlsa@nyayasetu.test");
+  await expect(page.getByRole("navigation").getByRole("link")).toHaveText(["District", "Lawyers", "Alerts"]);
 });
 
 test("another lawyer cannot open the prisoner by URL", async ({ page }) => {

@@ -131,8 +131,8 @@ count, and rejected facts are ignored.
 case (any spacing/case), when the FIR number matches at the same police station, or when the name AND father's name
 (spelling-tolerant: capitals, joined words, Gowda/Gouda) AND date of birth all match. A look-alike — same name with a
 different father, or without a date of birth to compare — is allowed and goes to the reviewer as an identity match,
-because different people share names. The admin is told which record matched; jail staff of another jail are only
-told that one exists. Blocked attempts are audit-logged (`duplicate_blocked`).
+because different people share names. Jail staff of the jail holding the record are told which record matched; staff of another jail are
+only told that one exists. Blocked attempts are audit-logged (`duplicate_blocked`).
 
 **D-029 · No browser pop-ups; downloads that always work.** `window.prompt/confirm` are blocked in many browsers and
 embedded views (it broke *Reset password*), so every question — reset password, correct a fact, verify legal data,
@@ -141,3 +141,22 @@ checks. Draft exports are sent `inline` and saved by the page (a fetched `attach
 download handling and never reaches the page). An admin password reset ends every session opened before it
 (`password_changed_at`). `e2e/buttons.spec.ts` presses the buttons on every screen for every role and fails on any
 uncaught page error.
+
+**D-030 · The system admin does technical work only.** Each office does its own job: **jail staff add prisoners** (into
+their own jail), the **DLSA adds, approves, deactivates and assigns lawyers** and sees its district's prisoner register,
+the reviewer verifies new records, and only the assigned lawyer uploads documents. The system admin keeps staff
+accounts, password resets, legal-data verification, the audit log and monitoring — and sees no prisoner at all, not
+even the register. The API enforces it (403), not only the menu: `/api/persons` (create), `/api/register`,
+`/api/lawyers` and `/assign` refuse the admin, and `/api/admin/users` refuses to create or convert a lawyer account,
+so there is no back door around the DLSA. Tests: `test_admin_does_technical_work_only`, `e2e/flows.spec.ts`.
+
+**D-031 · No "approve" on drafts; a reviewer screen that explains itself.** The app never approves a court
+application — a qualified lawyer reads it, signs it and files it — so the lawyer's *Approve* button is gone and the API
+refuses `status: approved` (422); drafts are edited and exported only. The review queue was hard to follow for anyone
+who did not build it (technical titles such as `offence_datetime = '2026-01-09T19:30'`, signal names such as
+`name_jw_phonetic`). Each item now carries plain context from the API (`context`: prisoner, jail, document, field,
+value, exact source text, hearing dates, the two records of an identity pair), and the screen shows, in all three
+languages: a three-step help box, the computer's confidence and what it means, *why is this here?*, the reading problem
+in plain words (e.g. "the date can be read two ways; read day-first"), *what to check*, and beside every button what it
+will do (including that closing a document warning does not release held facts, and that only "accused" delay reduces
+the count). The technical title stays available under *Technical detail*. Test: `test_review_items_explain_themselves`.

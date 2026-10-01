@@ -20,7 +20,7 @@
   },
   "calculation_failures": 0,
   "authorization_failures": 0,
-  "authorization_requests": 14770,
+  "authorization_requests": 14775,
   "out_of_scope_requests_denied": 8100,
   "consistency_failures": 0,
   "audit_failures": 0,
@@ -41,8 +41,8 @@
    "auto_merged": 0
   },
   "first_nightly_alerts": 565,
-  "seconds": 1217.9,
-  "load_seconds": 12.9
+  "seconds": 1105.3,
+  "load_seconds": 13.3
  },
  "categories": {
   "threshold_grid": 212,

@@ -110,6 +110,9 @@ def test_55_kannada_draft_generated_and_exported(client):
     assert docx.status_code == 200 and docx.content[:2] == b"PK"
     pdf = client.get(f"/api/drafts/{d['id']}/export?format=pdf", headers=lawyer)
     assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    # the app never "approves" a draft: the lawyer reviews, signs and files it outside the app
+    assert client.patch(f"/api/drafts/{d['id']}", json={"status": "approved"}, headers=lawyer).status_code == 422
+    assert client.get(f"/api/drafts/{d['id']}", headers=lawyer).json()["status"] == "draft"
 
 
 def test_56_nightly_job_idempotent_no_duplicate_alerts(client):
@@ -210,3 +213,20 @@ def test_upload_errors_are_user_friendly(client):
     r = client.post(f"/api/persons/{pid}/documents", files={"file": ("wrong.txt", b"ARREST MEMO\nName of arrested person: Mohammed Rafiq s/o Yusuf Khan\n")},
                     headers=lawyer)
     assert "NAME_MISMATCH" in r.json()["warnings"]
+
+
+def test_review_items_explain_themselves(client):
+    """Every queued item carries plain context (whose record, which document, which value) for the reviewer."""
+    reviewer = login(client, "reviewer@nyayasetu.test")
+    items = client.get("/api/review", headers=reviewer).json()
+    assert items
+    for i in items:
+        c = i["context"]
+        if i["kind"] == "extraction":
+            assert c["field"] and "value" in c and c["filename"] and c["doc_type"] and isinstance(c["notes"], list)
+        if i["kind"] in ("document", "document_type", "document_mismatch"):
+            assert c["filename"]
+        if i["kind"] == "delay_attribution":
+            assert c["hearing_date"]
+        if i["kind"] == "identity_match":
+            assert len(c["pair"]) == 2 and all(p["name"] for p in c["pair"])

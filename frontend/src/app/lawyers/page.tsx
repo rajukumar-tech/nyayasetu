@@ -43,7 +43,7 @@ export default function Lawyers() {
   const status = (l: LawyerRow) => l.status === "active" ? t("accountActive") : l.status === "pending_approval" ? t("accountPending") : t("accountInactive");
 
   return (
-    <Shell roles={["dlsa_admin", "system_admin"]}>
+    <Shell roles={["dlsa_admin"]}>
       <h1 className="text-2xl font-bold mb-2">{t("lawyersTitle")}</h1>
       <p className="text-sm text-muted mb-4 max-w-3xl">{t("lawyersIntro")}</p>
       <ErrorBox error={error} />

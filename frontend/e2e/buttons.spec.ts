@@ -26,7 +26,7 @@ async function logout(page: Page) {
 test("admin: reset password really changes the password; every admin button works", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page, "admin@nyayasetu.test");
-  await expect(page.getByRole("heading", { name: "Prisoner register" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
   // audit log toggles
   await page.getByRole("button", { name: "All entries" }).click();
   await page.getByRole("button", { name: "This session" }).click();
@@ -67,13 +67,6 @@ test("admin: reset password really changes the password; every admin button work
   await page.getByRole("dialog").locator("input").fill(PASSWORD);
   await page.getByRole("dialog").getByRole("button", { name: "Reset password" }).click();
   await expect(page.getByText("Password reset.")).toBeVisible();
-  // lawyers page: deactivate asks first
-  await page.getByRole("link", { name: "Lawyers" }).click();
-  await page.locator("tr", { hasText: "lawyer2@nyayasetu.test" }).getByRole("button", { name: "Deactivate" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-  await page.getByRole("link", { name: "Add prisoner" }).click();
-  await page.getByRole("button", { name: "Add section" }).click();
-  await page.getByRole("button", { name: "Remove" }).first().click();
   expect(errors).toEqual([]);
 });
 
@@ -104,7 +97,7 @@ test("lawyer: every tab and case button works", async ({ page }) => {
     await accept.click();
     await page.getByRole("button", { name: "Undo" }).first().click();
   }
-  // drafts: create, approve, export both formats
+  // drafts: create, export both formats, edit (no approve button)
   await page.getByRole("tab", { name: "Drafts" }).click();
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page.getByText(/sentences grounded/)).toBeVisible();
@@ -116,7 +109,7 @@ test("lawyer: every tab and case button works", async ({ page }) => {
   expect((await dl2).suggestedFilename()).toMatch(/\.docx$/);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByRole("button", { name: "Cancel" }).click();
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0); // drafts are never approved in the app
   await page.getByRole("link", { name: "Alerts" }).click();
   const ack = page.getByRole("button", { name: "Acknowledge" }).first();
   if (await ack.isVisible()) await ack.click();
@@ -126,6 +119,10 @@ test("lawyer: every tab and case button works", async ({ page }) => {
 test("jail staff, DLSA and reviewer buttons work", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page, "jail@nyayasetu.test");
+  await page.getByRole("navigation").getByRole("link", { name: "Add prisoner" }).click();
+  await page.getByRole("button", { name: "Add section" }).click();
+  await page.getByRole("button", { name: "Remove" }).first().click();
+  await page.getByRole("navigation").getByRole("link", { name: "Prisoners" }).click();
   await page.getByRole("link", { name: "Ravi Kumar" }).filter({ visible: true }).first().click();
   for (const b of ["Transfer", "Record release"]) {
     await page.getByRole("button", { name: b, exact: true }).click();
@@ -137,6 +134,10 @@ test("jail staff, DLSA and reviewer buttons work", async ({ page }) => {
   await expect(page.getByText("Overdue undertrials by district")).toBeVisible();
   await page.getByRole("button", { name: "Unassigned", exact: true }).click();
   await page.getByRole("button", { name: "All", exact: true }).click();
+  // lawyers page: deactivate asks first
+  await page.getByRole("navigation").getByRole("link", { name: "Lawyers" }).click();
+  await page.locator("tr", { hasText: "lawyer2@nyayasetu.test" }).getByRole("button", { name: "Deactivate" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   await logout(page);
   await login(page, "reviewer@nyayasetu.test");
   for (const k of ["New prisoners", "Extractions", "Delay attribution", "Identity matches", "Document mismatches", "Document type", "All"]) {
@@ -144,7 +145,14 @@ test("jail staff, DLSA and reviewer buttons work", async ({ page }) => {
   }
   await page.getByRole("button", { name: "Scan for duplicate identities" }).click();
   await expect(page.getByText(/candidate pair\(s\) queued/)).toBeVisible();
+  await page.getByRole("button", { name: "Hide help" }).click();
+  await page.getByRole("button", { name: "How does the review queue work?" }).click();
+  await expect(page.getByText("How the review queue works")).toBeVisible();
   const item = page.locator("main ul button").first();
-  if (await item.isVisible()) await item.click();
+  if (await item.isVisible()) {
+    await item.click();
+    await expect(page.getByText("Why is this here?")).toBeVisible();
+    await expect(page.getByText("What each choice does")).toBeVisible();
+  }
   expect(errors).toEqual([]);
 });

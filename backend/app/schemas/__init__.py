@@ -38,7 +38,7 @@ class DraftCreate(BaseModel):
 
 class DraftPatch(BaseModel):
     content: str | None = None
-    status: Literal["draft", "approved", "rejected"] | None = None
+    status: Literal["draft", "rejected"] | None = None  # drafts are never "approved" in the app: the lawyer signs and files
 
 
 class ReviewResolve(BaseModel):

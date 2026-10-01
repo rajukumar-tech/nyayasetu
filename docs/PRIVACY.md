@@ -20,10 +20,10 @@ decide anything about a person.
 | Role | Sees |
 |---|---|
 | legal_aid_lawyer | assigned prisoners only; Defense Insights for them |
-| jail_staff | prisoners in their jail; eligibility + alerts; **never** Defense Insights |
-| dlsa_admin | prisoners in their district; dashboards; assigns lawyers |
+| jail_staff | prisoners in their jail; adds prisoners to their jail; eligibility + alerts; **never** Defense Insights |
+| dlsa_admin | prisoners in their district; dashboards; prisoner register; adds, approves and deactivates lawyers; assigns lawyers |
 | reviewer | review queue items only |
-| system_admin | the prisoner register (name, jail, status, review state, lawyer), adding prisoners, accounts, lawyer assignment, legal data, audit log — **no** case details, documents, Defense Insights or drafts |
+| system_admin | technical work only: staff accounts, password resets, legal data, audit log, monitoring — **no** prisoners (not even the register), lawyer accounts, assignment, documents, Defense Insights or drafts |
 
 Defense Insights are privileged legal strategy, visible only to the assigned lawyer. A lawyer's drafts are visible only
 to that lawyer; the superintendent's application drafted by jail staff never includes insight-derived sentences. Only

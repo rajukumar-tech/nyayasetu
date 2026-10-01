@@ -26,7 +26,7 @@ drafts grounded applications for the lawyer to review.
 | **Defense Insight Engine** | Lawyer-only: arrest safeguards, evidence gaps, charge-level arguments, faster exits (plea bargaining, compounding, probation), speedy trial, and similar judgments retrieved — never generated. Every insight cites record spans. |
 | **Grounded drafting** | 479, default bail, regular bail, surety relief, speedy trial, plea bargaining, discharge — English and Kannada, DOCX/PDF. A verifier checks every date, section, number, name and citation against the sentence's sources. |
 | **Monitoring** | Nightly idempotent recompute; alerts at 30/7/0 days, overdue, critical, default-bail windows, document-triggered changes; escalation. |
-| **Dashboards** | Lawyer, jail staff, DLSA/UTRC heatmap and workload, reviewer queue, admin legal-data verification and audit log. |
+| **Dashboards** | Lawyer, jail staff, DLSA/UTRC heatmap and workload, reviewer queue, system-admin accounts, legal-data verification and audit log. |
 
 ## Architecture
 
@@ -92,18 +92,18 @@ check, assigning a lawyer, a new lawyer, access restriction, Kannada/Hindi and t
 ### Who does what
 | Role | Does | Does not see |
 |---|---|---|
-| System admin | dashboard: prisoner register, **add prisoners**, assign lawyers, lawyer & user accounts, legal data, audit log | case details, documents, Defense Insights, drafts |
+| System admin | **technical work only**: user accounts, password resets, legal-data verification, audit log, nightly monitoring | prisoners, lawyers' work, assignment, documents, Defense Insights, drafts |
 | Reviewer | checks new prisoners' details, uncertain extractions, delay attribution, identity matches | prisoner files outside the queue |
 | Legal-aid lawyer | **only assigned prisoners**: full case, documents (**only the lawyer uploads**), Defense Insights, drafts | anyone else's prisoners |
-| Jail staff | own jail: add prisoners, transfers, releases, case outcomes, superintendent's application | Defense Insights, lawyers' drafts |
-| DLSA / UTRC | own district: dashboard, workload, assignment, lawyer accounts | Defense Insights, lawyers' drafts |
+| Jail staff | own jail: **add prisoners**, transfers, releases, case outcomes, superintendent's application | Defense Insights, lawyers' drafts |
+| DLSA / UTRC | own district: dashboard, prisoner register, **add/approve/deactivate lawyers**, **assign lawyers** | Defense Insights, lawyers' drafts |
 
 A new prisoner goes to the review queue first; a lawyer can be assigned only after the reviewer verifies it. All of this
 is enforced by the API, not just hidden in the UI.
 
 ### Deploying (beyond the demo)
 - `NYAYA_DEMO_MODE=false` — the sign-in page then hides the demo-account list and legal data is **not** auto-verified.
-- Create real accounts through the admin screen; do not load the demo seed (`app.seed` creates the fixed demo users).
+- Create staff accounts through the admin screen (lawyers through the DLSA's *Lawyers* page); do not load the demo seed (`app.seed` creates the fixed demo users).
 - `NYAYA_JWT_SECRET` = 64+ random characters; `NYAYA_DOCUMENTS_ENCRYPTION_KEY` = a Fernet key (documents encrypted at rest).
 - `NYAYA_DATABASE_URL` = PostgreSQL (Docker Compose provides one); run `alembic upgrade head` for schema changes.
 - `NYAYA_CORS_ORIGINS` and `NEXT_PUBLIC_API_URL` = your real HTTPS origins; serve both behind HTTPS.
@@ -137,8 +137,9 @@ All from the default demo (two synthetic prisoners). Regenerate with
 | **Timeline** — custody, hearings coloured by who caused the delay ![Timeline](docs/screenshots/timeline.png) | **Source highlights** — every fact at its place in the document ![Source highlights](docs/screenshots/source-highlights.png) |
 | **Defense Insights** — assigned lawyer only ![Defense insights](docs/screenshots/defense-insights.png) | **Grounded draft** — every sentence checked by the verifier ![Grounded draft](docs/screenshots/draft.png) |
 | **ಕನ್ನಡ** ![Kannada](docs/screenshots/kannada.png) | **हिन्दी** ![Hindi](docs/screenshots/hindi.png) |
-| **Admin** — register, lawyer assignment after review, audit log, users ![Admin](docs/screenshots/admin.png) | **Reviewer** — review queue ![Reviewer](docs/screenshots/reviewer.png) |
-| **DLSA / UTRC** — district heatmap and workload ![DLSA dashboard](docs/screenshots/dlsa.png) | **Phone** ![Sign in on a phone](docs/screenshots/login-mobile.png) |
+| **System admin** — technical only: audit log, users, password resets, legal data ![Admin](docs/screenshots/admin.png) | **Reviewer** — every item says why it is there, what to check and what each button does ![Reviewer](docs/screenshots/reviewer.png) |
+| **DLSA / UTRC** — district heatmap and workload ![DLSA dashboard](docs/screenshots/dlsa.png) | **DLSA → Lawyers** — add, approve, deactivate ![Lawyers](docs/screenshots/lawyers.png) |
+| **Jail staff → Add prisoner** — goes to the review queue ![Add prisoner](docs/screenshots/add-prisoner.png) | **Phone** ![Sign in on a phone](docs/screenshots/login-mobile.png) |
 
 ## Documentation
 [PLAN](docs/PLAN.md) · [DECISIONS](docs/DECISIONS.md) · [EVALUATION](docs/EVALUATION.md) ·

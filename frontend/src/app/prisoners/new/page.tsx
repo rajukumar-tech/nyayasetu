@@ -53,7 +53,7 @@ export default function NewPrisoner() {
   );
 
   return (
-    <Shell roles={["jail_staff", "system_admin"]}>
+    <Shell roles={["jail_staff"]}>
       <h1 className="text-2xl font-bold mb-2">{t("newPrisonerTitle")}</h1>
       <p className="text-sm text-muted mb-4 max-w-3xl">{t("newPrisonerIntro")}</p>
       <ErrorBox error={error} />
@@ -61,8 +61,7 @@ export default function NewPrisoner() {
         <div className="mb-4">
           <Notice text={t("createdNote", { status: ts(created.status) })} />
           {created.possible_duplicates_queued > 0 && <Notice tone="urgent" text={t("possibleDuplicates", { n: created.possible_duplicates_queued })} />}
-          {isJail ? <Link href={`/prisoners/${created.id}`} className="btn btn-primary">{t("openRecord")}</Link>
-            : <Link href="/admin" className="btn btn-primary">{t("register")}</Link>}
+          <Link href={`/prisoners/${created.id}`} className="btn btn-primary">{t("openRecord")}</Link>
         </div>
       )}
       <form onSubmit={submit} className="space-y-4">

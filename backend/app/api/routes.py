@@ -497,7 +497,41 @@ def review_queue(user: User = Depends(require(Perm.REVIEW_QUEUE)), db: Session =
     rows = db.scalars(q.limit(300)).all()
     audit(db, user, "list", "review_queue", None, detail=f"{len(rows)} items")
     return [{"id": r.id, "kind": r.kind, "ref_id": r.ref_id, "title": r.title, "payload": r.payload, "confidence": r.confidence,
-             "created_at": _ts(r.created_at)} for r in rows]
+             "created_at": _ts(r.created_at), "context": _review_context(db, r)} for r in rows]
+
+
+def _review_context(db: Session, r: ReviewItem) -> dict:
+    """Plain facts the reviewer needs to understand an item: whose record, which document, which value."""
+    ctx: dict = {}
+    doc = person = None
+    if r.kind == "extraction":
+        f = db.get(ExtractedFact, r.ref_id)
+        if f is not None:
+            ctx.update(field=f.field, value=f.value, page=f.page, span_text=f.span_text, notes=list(f.notes or []))
+            doc = db.get(Document, f.document_id)
+            person = db.get(Person, f.person_id) if f.person_id else None
+    elif r.kind in ("document", "document_type", "document_mismatch"):
+        doc = db.get(Document, r.ref_id)
+        person = db.get(Person, doc.person_id) if doc is not None and doc.person_id else None
+    elif r.kind == "delay_attribution":
+        h = db.get(Hearing, r.ref_id)
+        if h is not None:
+            ctx.update(hearing_date=h.date.isoformat(), next_date=h.next_date.isoformat() if h.next_date else None)
+            case = db.get(Case, h.case_id)
+            names = [x.canonical_name for x in (case.persons if case else [])]
+            if names:
+                ctx["person"] = ", ".join(names)
+    elif r.kind == "new_prisoner":
+        person = db.get(Person, r.ref_id)
+    elif r.kind == "identity_match":
+        a, b = db.get(Person, r.payload.get("a")), db.get(Person, r.payload.get("b"))
+        ctx["pair"] = [{"name": x.canonical_name, "relative": ", ".join(x.relative_name_variants or []), "jail": x.jail,
+                        "dob": x.dob.isoformat() if x.dob else None} for x in (a, b) if x is not None]
+    if doc is not None:
+        ctx.update(filename=doc.filename, doc_type=doc.doc_type)
+    if person is not None:
+        ctx.update(person=person.canonical_name, jail=person.jail)
+    return ctx
 
 
 @router.post("/review/{rid}/resolve")
@@ -748,6 +782,8 @@ def users(user: User = Depends(require(Perm.MANAGE_USERS)), db: Session = Depend
 def create_user(body: UserCreate, user: User = Depends(require(Perm.MANAGE_USERS)), db: Session = Depends(get_db)) -> dict:
     if "@" not in body.email or not body.name.strip():
         raise HTTPException(422, "A valid email and name are required")
+    if body.role == Role.LAWYER:
+        raise HTTPException(422, "Lawyer accounts are added and approved by the DLSA (Lawyers page)")
     if body.role == Role.JAIL_STAFF and not (body.jail or "").strip():
         raise HTTPException(422, "Jail staff accounts need a jail")
     if body.role == Role.DLSA_ADMIN and not (body.district or "").strip():
@@ -770,6 +806,8 @@ def update_user(uid: str, body: UserPatch, user: User = Depends(require(Perm.MAN
     if u.id == user.id and (body.active is False or (body.role and body.role != u.role)):
         raise HTTPException(409, "You cannot deactivate your own account or change your own role")
     from app.services import accounts
+    if body.role == Role.LAWYER and u.role != Role.LAWYER:
+        raise HTTPException(422, "Lawyer accounts are added and approved by the DLSA (Lawyers page)")
     if body.active is False and u.active:
         accounts.deactivate(db, user, u, reason="deactivated by admin")
     elif body.active is True and not u.active:

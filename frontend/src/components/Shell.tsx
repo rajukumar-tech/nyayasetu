@@ -13,8 +13,8 @@ const NAV: Record<Role, { href: string; key: Key }[]> = {
   jail_staff: [{ href: "/jail", key: "prisoners" }, { href: "/prisoners/new", key: "addPrisoner" }, { href: "/alerts", key: "alerts" }],
   dlsa_admin: [{ href: "/dlsa", key: "district" }, { href: "/lawyers", key: "lawyers" }, { href: "/alerts", key: "alerts" }],
   reviewer: [{ href: "/reviewer", key: "review" }],
-  // the admin runs the system: dashboard (register, assignment, accounts, audit), new prisoners, lawyer accounts
-  system_admin: [{ href: "/admin", key: "admin" }, { href: "/prisoners/new", key: "addPrisoner" }, { href: "/lawyers", key: "lawyers" }],
+  // the system admin does technical work only: user accounts, audit log, legal data, monitoring
+  system_admin: [{ href: "/admin", key: "admin" }],
 };
 
 export function LangSelect({ className = "" }: { className?: string }) {
